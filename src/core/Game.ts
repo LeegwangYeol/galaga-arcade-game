@@ -2,8 +2,9 @@
  * Galaga Arcade Web Game — Master Game Coordinator
  * 
  * Integrates ScreenManager, GameLoop, Starfield, InputHandler, Player, BulletManager,
- * and SpriteRenderer. Implements deterministic game state machine, crisp double-buffered
- * rendering pipeline, and persistent high score management.
+ * FormationManager, and SpriteRenderer. Implements deterministic game state machine,
+ * collision resolution, crisp double-buffered rendering pipeline, and persistent
+ * high score management.
  */
 
 import { ScreenManager } from './ScreenManager';
@@ -12,8 +13,19 @@ import { Starfield } from '../systems/Starfield';
 import { InputHandler } from '../ui/InputHandler';
 import { Player } from '../entities/Player';
 import { BulletManager } from '../entities/Bullet';
+import { FormationManager } from '../systems/FormationManager';
 import { SpriteRenderer } from '../renderer/SpriteRenderer';
-import type { GameState, IGameEngine, VirtualResolution } from '../types';
+import { EnemyState } from '../types';
+import type { GameState, IGameEngine, Rect, VirtualResolution } from '../types';
+
+function checkAABB(a: Rect, b: Rect): boolean {
+  return (
+    a.x < b.x + b.width &&
+    a.x + a.width > b.x &&
+    a.y < b.y + b.height &&
+    a.y + a.height > b.y
+  );
+}
 
 export class Game implements IGameEngine {
   public static readonly CANVAS_ID = 'game-canvas';
@@ -38,6 +50,7 @@ export class Game implements IGameEngine {
   public inputHandler: InputHandler;
   public player: Player;
   public bulletManager: BulletManager;
+  public formationManager: FormationManager;
 
   // Core Game State
   public state: GameState = 'BOOT';
@@ -195,7 +208,27 @@ export class Game implements IGameEngine {
       this.setState('GAME_OVER');
     };
 
-    // 7. Initialize GameLoop
+    // 7. Initialize FormationManager Subsystem
+    this.formationManager = new FormationManager({
+      onEnemyFire: (req) => {
+        this.bulletManager.fireEnemyBullet(
+          req.originX,
+          req.originY,
+          req.targetX,
+          req.targetY,
+          req.speed
+        );
+      },
+      onEnemyDestroyed: (_enemy, points) => {
+        this.score += points;
+        this.saveHighScore();
+      },
+      onStageClear: () => {
+        this.setState('STAGE_CLEAR');
+      },
+    });
+
+    // 8. Initialize GameLoop
     this.gameLoop = new GameLoop({
       onUpdate: (dt: number) => this.update(dt),
       onRender: (_alpha: number) => this.render(this.ctx),
@@ -204,7 +237,7 @@ export class Game implements IGameEngine {
 
     this.isInitialized = true;
 
-    // 8. Transition to TITLE attract screen
+    // 9. Transition to TITLE attract screen
     this.setState('TITLE');
   }
 
@@ -276,6 +309,7 @@ export class Game implements IGameEngine {
     this.screenManager.destroy();
     this.inputHandler.destroy();
     this.bulletManager.clear();
+    this.formationManager.reset();
     this.isInitialized = false;
   }
 
@@ -290,6 +324,7 @@ export class Game implements IGameEngine {
     switch (newState) {
       case 'TITLE':
         this.starfield.setSpeedState('NORMAL');
+        this.formationManager.reset();
         break;
       case 'STAGE_INTRO':
         this.starfield.setSpeedState('WARP');
@@ -317,6 +352,7 @@ export class Game implements IGameEngine {
     this.lives = 3;
     this.bulletManager.clear();
     this.player.reset(112, Player.BASELINE_Y, 3);
+    this.formationManager.spawnStage(1);
     this.setState('STAGE_INTRO');
   }
 
@@ -392,6 +428,9 @@ export class Game implements IGameEngine {
     // 2.2 seconds intro animation before battle begins
     if (this.stateTimer >= 2.2) {
       this.player.respawn();
+      if (this.formationManager.enemies.length === 0) {
+        this.formationManager.spawnStage(this.stage);
+      }
       if (this.isChallengingStage(this.stage)) {
         this.setState('CHALLENGING_STAGE');
       } else {
@@ -403,6 +442,10 @@ export class Game implements IGameEngine {
   private updatePlaying(dt: number): void {
     const input = this.inputHandler.getState();
     this.player.update(dt, input);
+    this.formationManager.update(dt, this.player.x, this.player.y);
+
+    // Perform Collision Detection & Resolution
+    this.resolveCollisions();
   }
 
   private updateChallengingStage(dt: number): void {
@@ -413,6 +456,8 @@ export class Game implements IGameEngine {
     // 1.8 seconds stage clear intermission
     if (this.stateTimer >= 1.8) {
       this.stage += 1;
+      this.bulletManager.clear();
+      this.formationManager.spawnStage(this.stage);
       this.setState('STAGE_INTRO');
     }
   }
@@ -425,7 +470,80 @@ export class Game implements IGameEngine {
         this.inputHandler.consumeAction('fire')
       ) {
         this.bulletManager.clear();
+        this.formationManager.reset();
         this.setState('TITLE');
+      }
+    }
+  }
+
+  // ==========================================================================
+  // Collision Detection & Resolution Engine
+  // ==========================================================================
+
+  private resolveCollisions(): void {
+    const livingEnemies = this.formationManager.getLivingEnemies();
+
+    // 1. Player Missiles vs Living Enemies
+    this.bulletManager.forEachActivePlayerBullet((bullet) => {
+      if (!bullet.active) return;
+
+      const bulletBox = bullet.getSweptHitbox();
+
+      for (const enemy of livingEnemies) {
+        if (!enemy.active || enemy.state === EnemyState.EXPLODING || enemy.state === EnemyState.INACTIVE) {
+          continue;
+        }
+
+        const enemyBox = enemy.getHitbox();
+
+        if (checkAABB(bulletBox, enemyBox)) {
+          this.bulletManager.recycle(bullet);
+          const damageResult = enemy.takeDamage(1);
+
+          if (damageResult.destroyed) {
+            this.score += damageResult.points;
+            this.saveHighScore();
+          }
+          break; // One bullet hits one enemy
+        }
+      }
+    });
+
+    // 2. Enemy Bullets vs Player Ship
+    const s = this.player.state;
+    const isPlayerVulnerable =
+      !this.player.isInvulnerable() &&
+      (s === 'normal' || s === 'ALIVE' || s === 'dual' || s === 'DUAL' || s === 'docking' || s === 'DOCKING');
+
+    if (isPlayerVulnerable) {
+      this.bulletManager.forEachActiveEnemyBullet((bullet) => {
+        if (!bullet.active) return;
+
+        const bulletBox = bullet.getHitbox();
+        const hit = this.player.hitTestAndDamage(bulletBox);
+
+        if (hit) {
+          this.bulletManager.recycle(bullet);
+          this.lives = this.player.lives;
+        }
+      });
+    }
+
+    // 3. Enemy Craft Collisions vs Player Ship (Kamikaze Dive Impact)
+    if (isPlayerVulnerable) {
+      for (const enemy of livingEnemies) {
+        if (!enemy.active || enemy.state === EnemyState.EXPLODING || enemy.state === EnemyState.INACTIVE) {
+          continue;
+        }
+
+        const enemyBox = enemy.getHitbox();
+        const hit = this.player.hitTestAndDamage(enemyBox);
+
+        if (hit) {
+          enemy.takeDamage(99); // Destroy enemy on direct ship collision
+          this.lives = this.player.lives;
+          break;
+        }
       }
     }
   }
@@ -601,13 +719,16 @@ export class Game implements IGameEngine {
   }
 
   private renderPlayingScreen(ctx: CanvasRenderingContext2D): void {
-    // 1. Render Active Projectiles
+    // 1. Render Formation Grid & Diving Enemies
+    this.formationManager.render(ctx);
+
+    // 2. Render Active Projectiles
     this.bulletManager.render(ctx);
 
-    // 2. Render Player Ship
+    // 3. Render Player Ship
     this.player.render(ctx);
 
-    // 3. Challenging Stage Overlay banner if applicable
+    // 4. Challenging Stage Overlay banner if applicable
     if (this.state === 'CHALLENGING_STAGE') {
       ctx.save();
       ctx.font = '8px monospace';
@@ -743,6 +864,10 @@ export class Game implements IGameEngine {
 
   public getBulletManager(): BulletManager {
     return this.bulletManager;
+  }
+
+  public getFormationManager(): FormationManager {
+    return this.formationManager;
   }
 
   public getCanvas(): HTMLCanvasElement {

@@ -6,24 +6,26 @@
  * with zero runtime Garbage Collection allocations.
  */
 
+import { EnemyType } from '../types';
+
 // ============================================================================
 // 1. Arcade Color Palette & Single-Character Code Map
 // ============================================================================
 
 export const PALETTE = {
   TRANSPARENT: 'rgba(0,0,0,0)',
-  WHITE:        '#FFFFFF', // Player fuselage, highlights, starfield
-  RED:          '#E70000', // Player wingtips/engine, Goei body, enemy bullets
-  RED_DARK:     '#9E0000', // Captured fighter shadow/shading
-  BLUE_LIGHT:   '#5B93FF', // Player cockpit glass, Zako highlights
-  BLUE_CYAN:    '#00FFFF', // 2UP text, Zako wings, UI badges
-  BLUE_NAVY:    '#000088', // Zako carapace, hit Boss Galaga
-  YELLOW:       '#FFFF00', // Player radar tip, missiles, Zako body, scores
-  ORANGE:       '#FF7F00', // Enemy heavy missiles, explosion embers
-  GREEN:        '#00E700', // Boss Galaga healthy state, Stage Clear text
-  PINK_MAGENTA: '#FF007F', // Starfield, Stage intro text
-  GREY_LIGHT:   '#AAAAAA', // Metal accents, copyright text
-  GREY_DARK:    '#555555', // Shading, disabled UI
+  WHITE:        '#FFFFFF', // Player fuselage, starfield, Goei highlights
+  RED:          '#E70000', // Player wingtips, Goei body, enemy bullets, Zako eyes
+  RED_DARK:     '#9E0000', // Dark red shading, captured fighter engine
+  BLUE_LIGHT:   '#5B93FF', // Cockpit glass, Wounded Boss, Goei abdomen, Zako trim
+  BLUE_CYAN:    '#00FFFF', // Zako wings, UI badges, Goei accents
+  BLUE_NAVY:    '#000088', // Carapace shadows, deep blue contours
+  YELLOW:       '#FFFF00', // Zako body, Goei antennae/spots, Boss eyes
+  ORANGE:       '#FF7F00', // Heavy enemy missiles, explosion embers
+  GREEN:        '#00E700', // Healthy Boss Galaga carapace
+  PINK_MAGENTA: '#FF007F', // Transform alien highlights, stage text
+  GREY_LIGHT:   '#AAAAAA', // Metal accents, Boss horn tips
+  GREY_DARK:    '#555555', // Outline shading, UI disabled
   PURPLE:       '#9900EE', // Warp trails, particle FX
 } as const;
 
@@ -50,34 +52,27 @@ export const PALETTE_CHAR_MAP: Record<string, string> = {
 // 2. Procedural Sprite Pixel Bit-Matrices
 // ============================================================================
 
-/**
- * Single Player Fighter (15x16)
- * Bilaterally symmetrical across column index 7.
- */
+// --- Player & Weapon Matrices ---
+
 export const PLAYER_FIGHTER_MATRIX: string[][] = [
-  // 012345678901234 (Columns 0..14)
-  ['.','.','.','.','.','.','.','Y','.','.','.','.','.','.','.'], // Row 0: Yellow Nose Tip
-  ['.','.','.','.','.','.','.','Y','.','.','.','.','.','.','.'], // Row 1: Yellow Antenna
-  ['.','.','.','.','.','.','R','W','R','.','.','.','.','.','.'], // Row 2: Red nose accents
-  ['.','.','.','.','.','.','R','W','R','.','.','.','.','.','.'], // Row 3: Red nose accents
-  ['.','.','.','.','.','W','W','W','W','W','.','.','.','.','.'], // Row 4: Upper delta hull
-  ['.','.','.','.','.','W','R','R','R','W','.','.','.','.','.'], // Row 5: Red chevron stripe
-  ['.','.','.','.','W','W','R','R','R','W','W','.','.','.','.'], // Row 6: Expanding hull
-  ['.','.','.','.','W','W','W','W','W','W','W','.','.','.','.'], // Row 7: Mid hull
-  ['.','W','.','.','W','B','B','W','B','B','W','.','.','W','.'], // Row 8: Cannons & Blue Cockpit
-  ['.','W','.','W','W','B','B','W','B','B','W','W','.','W','.'], // Row 9: Cannons & Blue Cockpit
-  ['.','W','W','W','W','W','W','W','W','W','W','W','W','W','.'], // Row 10: Full wingspan
-  ['W','W','W','W','W','W','R','R','R','W','W','W','W','W','W'], // Row 11: Main wing & Red Engine
-  ['W','R','R','W','W','W','R','R','R','W','W','W','R','R','W'], // Row 12: Red wingtips
-  ['W','R','R','W','W','W','W','W','W','W','W','W','R','R','W'], // Row 13: Red wingtips
-  ['W','W','W','W','.','.','R','R','R','.','.','W','W','W','W'], // Row 14: Twin stabilizers
-  ['.','W','W','.','.','.','.','R','.','.','.','.','W','W','.']  // Row 15: Tail fins & Thruster
+  ['.','.','.','.','.','.','.','Y','.','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','.','Y','.','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','R','W','R','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','R','W','R','.','.','.','.','.','.'],
+  ['.','.','.','.','.','W','W','W','W','W','.','.','.','.','.'],
+  ['.','.','.','.','.','W','R','R','R','W','.','.','.','.','.'],
+  ['.','.','.','.','W','W','R','R','R','W','W','.','.','.','.'],
+  ['.','.','.','.','W','W','W','W','W','W','W','.','.','.','.'],
+  ['.','W','.','.','W','B','B','W','B','B','W','.','.','W','.'],
+  ['.','W','.','W','W','B','B','W','B','B','W','W','.','W','.'],
+  ['.','W','W','W','W','W','W','W','W','W','W','W','W','W','.'],
+  ['W','W','W','W','W','W','R','R','R','W','W','W','W','W','W'],
+  ['W','R','R','W','W','W','R','R','R','W','W','W','R','R','W'],
+  ['W','R','R','W','W','W','W','W','W','W','W','W','R','R','W'],
+  ['W','W','W','W','.','.','R','R','R','.','.','W','W','W','W'],
+  ['.','W','W','.','.','.','.','R','.','.','.','.','W','W','.']
 ];
 
-/**
- * Constructs 31x16 Dual Fighter matrix by joining two single fighters side-by-side
- * with a 1px connected wing joint in the center.
- */
 export function createDualFighterMatrix(singleMatrix: string[][]): string[][] {
   const height = singleMatrix.length;
   const singleWidth = singleMatrix[0]?.length ?? 15;
@@ -86,14 +81,11 @@ export function createDualFighterMatrix(singleMatrix: string[][]): string[][] {
   for (let r = 0; r < height; r++) {
     const row: string[] = [];
     const sourceRow = singleMatrix[r] ?? [];
-    // Left fighter (15 cols)
     for (let c = 0; c < singleWidth; c++) {
       row.push(sourceRow[c] ?? '.');
     }
-    // Middle joint / spacer (1 col: connecting wing contact)
     const isWingRow = r >= 10 && r <= 13;
     row.push(isWingRow ? 'W' : '.');
-    // Right fighter (15 cols)
     for (let c = 0; c < singleWidth; c++) {
       row.push(sourceRow[c] ?? '.');
     }
@@ -104,32 +96,25 @@ export function createDualFighterMatrix(singleMatrix: string[][]): string[][] {
 
 export const DUAL_FIGHTER_MATRIX: string[][] = createDualFighterMatrix(PLAYER_FIGHTER_MATRIX);
 
-/**
- * Captured Red Fighter (15x16)
- * Red/Yellow hostile escort palette under Boss Galaga command.
- */
 export const CAPTURED_FIGHTER_MATRIX: string[][] = [
-  ['.','.','.','.','.','.','.','Y','.','.','.','.','.','.','.'], // Row 0: Yellow Tip
-  ['.','.','.','.','.','.','.','Y','.','.','.','.','.','.','.'], // Row 1: Yellow Antenna
-  ['.','.','.','.','.','.','Y','R','Y','.','.','.','.','.','.'], // Row 2: Yellow trim, Red nose
-  ['.','.','.','.','.','.','Y','R','Y','.','.','.','.','.','.'], // Row 3: Yellow trim, Red nose
-  ['.','.','.','.','.','R','R','R','R','R','.','.','.','.','.'], // Row 4: Red upper hull
-  ['.','.','.','.','.','R','Y','Y','Y','R','.','.','.','.','.'], // Row 5: Yellow chevron
-  ['.','.','.','.','R','R','Y','Y','Y','R','R','.','.','.','.'], // Row 6: Red hull
-  ['.','.','.','.','R','R','R','R','R','R','R','.','.','.','.'], // Row 7: Red mid-hull
-  ['.','R','.','.','R','Y','Y','R','Y','Y','R','.','.','R','.'], // Row 8: Cannons & Yellow Cockpit
-  ['.','R','.','R','R','Y','Y','R','Y','Y','R','R','.','R','.'], // Row 9: Cannons & Yellow Cockpit
-  ['.','R','R','R','R','R','R','R','R','R','R','R','R','R','.'], // Row 10: Red wingspan
-  ['R','R','R','R','R','R','D','D','D','R','R','R','R','R','R'], // Row 11: Red wing & Dark Engine
-  ['R','Y','Y','R','R','R','D','D','D','R','R','R','Y','Y','R'], // Row 12: Yellow wingtips
-  ['R','Y','Y','R','R','R','R','R','R','R','R','R','Y','Y','R'], // Row 13: Yellow wingtips
-  ['R','R','R','R','.','.','D','D','D','.','.','R','R','R','R'], // Row 14: Stabilizers
-  ['.','R','R','.','.','.','.','D','.','.','.','.','R','R','.']  // Row 15: Tail fins & Thruster
+  ['.','.','.','.','.','.','.','Y','.','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','.','Y','.','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','Y','R','Y','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','Y','R','Y','.','.','.','.','.','.'],
+  ['.','.','.','.','.','R','R','R','R','R','.','.','.','.','.'],
+  ['.','.','.','.','.','R','Y','Y','Y','R','.','.','.','.','.'],
+  ['.','.','.','.','R','R','Y','Y','Y','R','R','.','.','.','.'],
+  ['.','.','.','.','R','R','R','R','R','R','R','.','.','.','.'],
+  ['.','R','.','.','R','Y','Y','R','Y','Y','R','.','.','R','.'],
+  ['.','R','.','R','R','Y','Y','R','Y','Y','R','R','.','R','.'],
+  ['.','R','R','R','R','R','R','R','R','R','R','R','R','R','.'],
+  ['R','R','R','R','R','R','D','D','D','R','R','R','R','R','R'],
+  ['R','Y','Y','R','R','R','D','D','D','R','R','R','Y','Y','R'],
+  ['R','Y','Y','R','R','R','R','R','R','R','R','R','Y','Y','R'],
+  ['R','R','R','R','.','.','D','D','D','.','.','R','R','R','R'],
+  ['.','R','R','.','.','.','.','D','.','.','.','.','R','R','.']
 ];
 
-/**
- * Player Laser Missile (3x8)
- */
 export const PLAYER_MISSILE_MATRIX: string[][] = [
   ['.','Y','.'],
   ['.','Y','.'],
@@ -141,9 +126,6 @@ export const PLAYER_MISSILE_MATRIX: string[][] = [
   ['.','W','.']
 ];
 
-/**
- * Enemy Needle Bullet (3x6)
- */
 export const ENEMY_BULLET_MATRIX: string[][] = [
   ['.','R','.'],
   ['R','Y','R'],
@@ -153,9 +135,6 @@ export const ENEMY_BULLET_MATRIX: string[][] = [
   ['.','R','.']
 ];
 
-/**
- * Enemy Fast Beam (3x8)
- */
 export const ENEMY_FAST_BEAM_MATRIX: string[][] = [
   ['.','O','.'],
   ['O','Y','O'],
@@ -167,9 +146,6 @@ export const ENEMY_FAST_BEAM_MATRIX: string[][] = [
   ['.','O','.']
 ];
 
-/**
- * Player HUD Life Icon (11x10)
- */
 export const PLAYER_LIFE_ICON_MATRIX: string[][] = [
   ['.','.','.','.','.','Y','.','.','.','.','.'],
   ['.','.','.','.','R','W','R','.','.','.','.'],
@@ -181,6 +157,241 @@ export const PLAYER_LIFE_ICON_MATRIX: string[][] = [
   ['W','R','R','W','R','R','R','W','R','R','W'],
   ['W','W','W','.','R','R','R','.','W','W','W'],
   ['.','W','.','.','.','R','.','.','.','W','.']
+];
+
+// --- Enemy Matrices ---
+
+// Zako (Yellow/Red Bug) — 2 Frames (16x16)
+export const ZAKO_FRAME_0_MATRIX: string[][] = [
+  ['.','.','.','.','.','.','Y','Y','Y','Y','.','.','.','.','.','.'],
+  ['.','.','.','.','.','Y','Y','Y','Y','Y','Y','.','.','.','.','.'],
+  ['.','.','.','.','Y','Y','R','Y','Y','R','Y','Y','.','.','.','.'],
+  ['.','.','.','Y','Y','Y','R','Y','Y','R','Y','Y','Y','.','.','.'],
+  ['.','C','C','Y','Y','Y','Y','Y','Y','Y','Y','Y','Y','C','C','.'],
+  ['C','C','C','C','Y','Y','Y','Y','Y','Y','Y','Y','C','C','C','C'],
+  ['C','C','C','C','C','C','C','C','C','C','C','C','C','C','C','C'],
+  ['C','C','.','C','C','C','B','B','B','B','C','C','C','.','C','C'],
+  ['.','.','.','.','C','B','B','B','B','B','B','C','.','.','.','.'],
+  ['.','.','.','.','.','B','Y','Y','Y','Y','B','.','.','.','.','.'],
+  ['.','.','.','.','.','B','Y','R','R','Y','B','.','.','.','.','.'],
+  ['.','.','.','.','.','B','Y','R','R','Y','B','.','.','.','.','.'],
+  ['.','.','.','.','.','.','B','Y','Y','B','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','B','B','B','B','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','.','B','B','.','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','.','.','.','.','.','.','.','.','.','.']
+];
+
+export const ZAKO_FRAME_1_MATRIX: string[][] = [
+  ['.','.','.','.','.','.','Y','Y','Y','Y','.','.','.','.','.','.'],
+  ['.','.','.','.','.','Y','Y','Y','Y','Y','Y','.','.','.','.','.'],
+  ['.','.','.','.','Y','Y','R','Y','Y','R','Y','Y','.','.','.','.'],
+  ['.','.','.','Y','Y','Y','R','Y','Y','R','Y','Y','Y','.','.','.'],
+  ['.','.','C','C','Y','Y','Y','Y','Y','Y','Y','Y','C','C','.','.'],
+  ['.','C','C','C','C','Y','Y','Y','Y','Y','Y','C','C','C','C','.'],
+  ['.','C','C','C','C','C','C','C','C','C','C','C','C','C','C','.'],
+  ['.','.','C','C','C','C','B','B','B','B','C','C','C','C','.','.'],
+  ['.','.','.','C','C','B','B','B','B','B','B','C','C','.','.','.'],
+  ['.','.','.','.','.','B','Y','Y','Y','Y','B','.','.','.','.','.'],
+  ['.','.','.','.','.','B','Y','R','R','Y','B','.','.','.','.','.'],
+  ['.','.','.','.','.','B','Y','R','R','Y','B','.','.','.','.','.'],
+  ['.','.','.','.','.','.','B','Y','Y','B','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','B','B','B','B','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','.','B','B','.','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','.','.','.','.','.','.','.','.','.','.']
+];
+
+// Goei (Red Butterfly) — 2 Frames (16x16)
+export const GOEI_FRAME_0_MATRIX: string[][] = [
+  ['.','.','.','.','.','.','Y','.','.','Y','.','.','.','.','.','.'],
+  ['.','.','.','.','.','Y','Y','.','.','Y','Y','.','.','.','.','.'],
+  ['.','.','.','.','.','R','R','R','R','R','R','.','.','.','.','.'],
+  ['.','.','.','R','R','R','Y','Y','Y','Y','R','R','R','.','.','.'],
+  ['.','R','R','R','R','B','B','B','B','B','B','R','R','R','R','.'],
+  ['R','R','R','R','B','B','Y','Y','Y','Y','B','B','R','R','R','R'],
+  ['R','R','R','R','B','B','Y','Y','Y','Y','B','B','R','R','R','R'],
+  ['R','R','R','R','R','B','B','B','B','B','B','R','R','R','R','R'],
+  ['.','R','R','R','R','R','R','B','B','R','R','R','R','R','R','.'],
+  ['.','.','R','R','R','R','B','B','B','B','R','R','R','R','.','.'],
+  ['.','.','.','R','R','B','Y','Y','Y','Y','B','R','R','.','.','.'],
+  ['.','.','.','.','R','B','Y','R','R','Y','B','R','.','.','.','.'],
+  ['.','.','.','.','.','B','Y','R','R','Y','B','.','.','.','.','.'],
+  ['.','.','.','.','.','.','B','Y','Y','B','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','.','B','B','.','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','.','.','.','.','.','.','.','.','.','.']
+];
+
+export const GOEI_FRAME_1_MATRIX: string[][] = [
+  ['.','.','.','.','.','.','Y','.','.','Y','.','.','.','.','.','.'],
+  ['.','.','.','.','.','Y','Y','.','.','Y','Y','.','.','.','.','.'],
+  ['.','R','R','.','.','R','R','R','R','R','R','.','.','R','R','.'],
+  ['.','R','R','R','R','R','Y','Y','Y','Y','R','R','R','R','R','.'],
+  ['.','R','R','R','B','B','B','B','B','B','B','B','R','R','R','.'],
+  ['.','.','R','R','B','B','Y','Y','Y','Y','B','B','R','R','.','.'],
+  ['.','.','R','R','B','B','Y','Y','Y','Y','B','B','R','R','.','.'],
+  ['.','.','R','R','R','B','B','B','B','B','B','R','R','R','.','.'],
+  ['.','.','R','R','R','R','R','B','B','R','R','R','R','R','.','.'],
+  ['.','.','.','R','R','R','B','B','B','B','R','R','R','.','.','.'],
+  ['.','.','.','R','R','B','Y','Y','Y','Y','B','R','R','.','.','.'],
+  ['.','.','.','.','R','B','Y','R','R','Y','B','R','.','.','.','.'],
+  ['.','.','.','.','.','B','Y','R','R','Y','B','.','.','.','.','.'],
+  ['.','.','.','.','.','.','B','Y','Y','B','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','.','B','B','.','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','.','.','.','.','.','.','.','.','.','.']
+];
+
+// Boss Galaga Healthy (Green) — 2 Frames (16x16)
+export const BOSS_HEALTHY_FRAME_0_MATRIX: string[][] = [
+  ['.','.','.','.','.','.','G','G','G','G','.','.','.','.','.','.'],
+  ['.','.','.','.','.','G','G','G','G','G','G','.','.','.','.','.'],
+  ['.','.','.','.','G','G','B','B','B','B','G','G','.','.','.','.'],
+  ['.','.','.','G','G','B','B','Y','Y','B','B','G','G','.','.','.'],
+  ['.','.','G','G','G','B','Y','Y','Y','Y','B','G','G','G','.','.'],
+  ['.','G','G','G','G','G','B','B','B','B','G','G','G','G','G','.'],
+  ['G','G','B','B','G','G','G','G','G','G','G','G','B','B','G','G'],
+  ['G','B','B','B','B','G','G','G','G','G','G','B','B','B','B','G'],
+  ['G','B','B','B','B','B','B','B','B','B','B','B','B','B','B','G'],
+  ['.','G','B','B','B','B','B','B','B','B','B','B','B','B','G','.'],
+  ['.','.','G','G','B','B','B','B','B','B','B','B','G','G','.','.'],
+  ['.','.','.','G','G','G','B','B','B','B','G','G','G','.','.','.'],
+  ['.','.','.','.','G','G','G','G','G','G','G','G','.','.','.','.'],
+  ['.','.','.','.','.','G','B','B','B','B','G','.','.','.','.','.'],
+  ['.','.','.','.','.','G','B','.','.','B','G','.','.','.','.','.'],
+  ['.','.','.','.','.','.','B','.','.','B','.','.','.','.','.','.']
+];
+
+export const BOSS_HEALTHY_FRAME_1_MATRIX: string[][] = [
+  ['.','.','.','.','.','.','G','G','G','G','.','.','.','.','.','.'],
+  ['.','.','.','.','.','G','G','G','G','G','G','.','.','.','.','.'],
+  ['.','.','.','.','G','G','B','B','B','B','G','G','.','.','.','.'],
+  ['.','.','.','.','G','B','B','Y','Y','B','B','G','.','.','.','.'],
+  ['.','.','.','G','G','B','Y','Y','Y','Y','B','G','G','.','.','.'],
+  ['.','.','G','G','G','G','B','B','B','B','G','G','G','G','.','.'],
+  ['.','G','G','B','B','G','G','G','G','G','G','B','B','G','G','.'],
+  ['G','G','B','B','B','B','G','G','G','G','B','B','B','B','G','G'],
+  ['G','B','B','B','B','B','B','B','B','B','B','B','B','B','B','G'],
+  ['.','G','B','B','B','B','B','B','B','B','B','B','B','B','G','.'],
+  ['.','.','G','G','B','B','B','B','B','B','B','B','G','G','.','.'],
+  ['.','.','.','G','G','G','B','B','B','B','G','G','G','.','.','.'],
+  ['.','.','.','.','G','G','G','G','G','G','G','G','.','.','.','.'],
+  ['.','.','.','.','.','G','B','B','B','B','G','.','.','.','.','.'],
+  ['.','.','.','.','.','G','B','.','.','B','G','.','.','.','.','.'],
+  ['.','.','.','.','.','.','B','.','.','B','.','.','.','.','.','.']
+];
+
+// Boss Galaga Damaged (Wounded Blue) — 2 Frames (16x16)
+export const BOSS_DAMAGED_FRAME_0_MATRIX: string[][] = [
+  ['.','.','.','.','.','.','B','B','B','B','.','.','.','.','.','.'],
+  ['.','.','.','.','.','B','B','B','B','B','B','.','.','.','.','.'],
+  ['.','.','.','.','B','B','R','R','R','R','B','B','.','.','.','.'],
+  ['.','.','.','B','B','R','R','Y','Y','R','R','B','B','.','.','.'],
+  ['.','.','B','B','B','R','Y','Y','Y','Y','R','B','B','B','.','.'],
+  ['.','B','B','B','B','B','R','R','R','R','B','B','B','B','B','.'],
+  ['B','B','R','R','B','B','B','B','B','B','B','B','R','R','B','B'],
+  ['B','R','R','R','R','B','B','B','B','B','B','R','R','R','R','B'],
+  ['B','R','R','R','R','R','R','R','R','R','R','R','R','R','R','B'],
+  ['.','B','R','R','R','R','R','R','R','R','R','R','R','R','B','.'],
+  ['.','.','B','B','R','R','R','R','R','R','R','R','B','B','.','.'],
+  ['.','.','.','B','B','B','R','R','R','R','B','B','B','.','.','.'],
+  ['.','.','.','.','B','B','B','B','B','B','B','B','.','.','.','.'],
+  ['.','.','.','.','.','B','R','R','R','R','B','.','.','.','.','.'],
+  ['.','.','.','.','.','B','R','.','.','R','B','.','.','.','.','.'],
+  ['.','.','.','.','.','.','R','.','.','R','.','.','.','.','.','.']
+];
+
+export const BOSS_DAMAGED_FRAME_1_MATRIX: string[][] = [
+  ['.','.','.','.','.','.','B','B','B','B','.','.','.','.','.','.'],
+  ['.','.','.','.','.','B','B','B','B','B','B','.','.','.','.','.'],
+  ['.','.','.','.','B','B','R','R','R','R','B','B','.','.','.','.'],
+  ['.','.','.','.','B','R','R','Y','Y','R','R','B','.','.','.','.'],
+  ['.','.','.','B','B','R','Y','Y','Y','Y','R','B','B','.','.','.'],
+  ['.','.','B','B','B','B','R','R','R','R','B','B','B','B','.','.'],
+  ['.','B','B','R','R','B','B','B','B','B','B','R','R','B','B','.'],
+  ['B','B','R','R','R','R','B','B','B','B','R','R','R','R','B','B'],
+  ['B','R','R','R','R','R','R','R','R','R','R','R','R','R','R','B'],
+  ['.','B','R','R','R','R','R','R','R','R','R','R','R','R','B','.'],
+  ['.','.','B','B','R','R','R','R','R','R','R','R','B','B','.','.'],
+  ['.','.','.','B','B','B','R','R','R','R','B','B','B','.','.','.'],
+  ['.','.','.','.','B','B','B','B','B','B','B','B','.','.','.','.'],
+  ['.','.','.','.','.','B','R','R','R','R','B','.','.','.','.','.'],
+  ['.','.','.','.','.','B','R','.','.','R','B','.','.','.','.','.'],
+  ['.','.','.','.','.','.','R','.','.','R','.','.','.','.','.','.']
+];
+
+// Transform / Morphing Bonus Enemies (16x16)
+export const TRANSFORM_SCORPION_FRAME_0_MATRIX: string[][] = [
+  ['.','.','.','.','.','.','P','P','P','P','.','.','.','.','.','.'],
+  ['.','.','.','.','P','P','P','Y','Y','P','P','P','.','.','.','.'],
+  ['.','.','.','P','P','Y','Y','Y','Y','Y','Y','P','P','.','.','.'],
+  ['.','.','P','P','Y','Y','R','Y','Y','R','Y','Y','P','P','.','.'],
+  ['.','P','P','Y','Y','Y','R','Y','Y','R','Y','Y','Y','P','P','.'],
+  ['P','P','P','P','P','P','P','P','P','P','P','P','P','P','P','P'],
+  ['P','Y','Y','P','P','P','P','P','P','P','P','P','P','Y','Y','P'],
+  ['P','Y','Y','P','P','Y','Y','Y','Y','Y','Y','P','P','Y','Y','P'],
+  ['.','P','P','.','P','Y','R','R','R','R','Y','P','.','P','P','.'],
+  ['.','.','.','.','P','Y','R','Y','Y','R','Y','P','.','.','.','.'],
+  ['.','.','.','.','P','P','Y','R','R','Y','P','P','.','.','.','.'],
+  ['.','.','.','.','.','P','P','Y','Y','P','P','.','.','.','.','.'],
+  ['.','.','.','.','.','.','P','P','P','P','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','.','P','P','.','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','.','Y','Y','.','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','.','.','.','.','.','.','.','.','.','.']
+];
+
+export const TRANSFORM_SCORPION_FRAME_1_MATRIX: string[][] = [
+  ['.','.','.','.','.','.','P','P','P','P','.','.','.','.','.','.'],
+  ['.','.','.','.','P','P','P','Y','Y','P','P','P','.','.','.','.'],
+  ['.','.','.','P','P','Y','Y','Y','Y','Y','Y','P','P','.','.','.'],
+  ['.','.','P','P','Y','Y','R','Y','Y','R','Y','Y','P','P','.','.'],
+  ['.','.','P','P','Y','Y','R','Y','Y','R','Y','Y','P','P','.','.'],
+  ['.','P','P','P','P','P','P','P','P','P','P','P','P','P','P','.'],
+  ['P','P','Y','Y','P','P','P','P','P','P','P','P','Y','Y','P','P'],
+  ['P','Y','Y','P','P','Y','Y','Y','Y','Y','Y','P','P','Y','Y','P'],
+  ['.','P','P','.','P','Y','R','R','R','R','Y','P','.','P','P','.'],
+  ['.','.','.','.','P','Y','R','Y','Y','R','Y','P','.','.','.','.'],
+  ['.','.','.','.','P','P','Y','R','R','Y','P','P','.','.','.','.'],
+  ['.','.','.','.','.','P','P','Y','Y','P','P','.','.','.','.','.'],
+  ['.','.','.','.','.','.','P','P','P','P','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','.','P','P','.','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','.','Y','Y','.','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','.','.','.','.','.','.','.','.','.','.']
+];
+
+export const TRANSFORM_BOSCONIAN_FRAME_0_MATRIX: string[][] = [
+  ['.','.','.','.','.','.','W','W','W','W','.','.','.','.','.','.'],
+  ['.','.','.','.','.','W','W','R','R','W','W','.','.','.','.','.'],
+  ['.','.','.','.','W','W','R','R','R','R','W','W','.','.','.','.'],
+  ['.','.','.','W','W','R','R','Y','Y','R','R','W','W','.','.','.'],
+  ['.','.','W','W','R','R','Y','Y','Y','Y','R','R','W','W','.','.'],
+  ['.','W','W','R','R','R','R','R','R','R','R','R','R','W','W','.'],
+  ['W','W','R','R','R','R','G','G','G','G','R','R','R','R','W','W'],
+  ['W','R','R','R','R','G','G','G','G','G','G','R','R','R','R','W'],
+  ['W','R','R','R','R','G','G','G','G','G','G','R','R','R','R','W'],
+  ['W','W','R','R','R','R','G','G','G','G','R','R','R','R','W','W'],
+  ['.','W','W','R','R','R','R','R','R','R','R','R','R','W','W','.'],
+  ['.','.','W','W','R','R','Y','Y','Y','Y','R','R','W','W','.','.'],
+  ['.','.','.','W','W','R','R','Y','Y','R','R','W','W','.','.','.'],
+  ['.','.','.','.','W','W','R','R','R','R','W','W','.','.','.','.'],
+  ['.','.','.','.','.','W','W','R','R','W','W','.','.','.','.','.'],
+  ['.','.','.','.','.','.','W','W','W','W','.','.','.','.','.','.']
+];
+
+export const TRANSFORM_GALAXIAN_MATRIX: string[][] = [
+  ['.','.','.','.','.','.','.','Y','.','.','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','Y','Y','Y','.','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','Y','R','Y','.','.','.','.','.','.','.'],
+  ['.','.','.','.','.','Y','Y','R','Y','Y','.','.','.','.','.','.'],
+  ['.','.','.','.','Y','Y','Y','R','Y','Y','Y','.','.','.','.','.'],
+  ['.','.','.','Y','Y','Y','Y','R','Y','Y','Y','Y','.','.','.','.'],
+  ['.','.','B','B','B','B','B','B','B','B','B','B','B','B','.','.'],
+  ['.','B','B','B','B','B','R','R','R','R','B','B','B','B','B','.'],
+  ['B','B','B','B','B','R','R','R','R','R','R','B','B','B','B','B'],
+  ['B','B','B','B','R','R','R','R','R','R','R','R','B','B','B','B'],
+  ['B','B','B','R','R','R','R','R','R','R','R','R','R','B','B','B'],
+  ['.','B','B','B','R','R','R','R','R','R','R','R','B','B','B','.'],
+  ['.','.','B','B','B','R','R','.','.','R','R','B','B','B','.','.'],
+  ['.','.','.','B','B','B','.','.','.','.','B','B','B','.','.','.'],
+  ['.','.','.','.','B','B','.','.','.','.','.','B','B','.','.','.'],
+  ['.','.','.','.','.','B','.','.','.','.','.','.','B','.','.','.']
 ];
 
 // ============================================================================
@@ -224,7 +435,7 @@ export class SpriteRenderer {
   public static initialize(): void {
     if (SpriteRenderer.isInitialized) return;
 
-    // 1. Register Core Sprites
+    // 1. Register Player & Projectiles
     SpriteRenderer.registerDefinition({
       id: 'PLAYER_FIGHTER',
       width: 15,
@@ -274,7 +485,58 @@ export class SpriteRenderer {
       frames: [PLAYER_LIFE_ICON_MATRIX]
     });
 
-    // 2. Pre-bake all registered definitions into offscreen canvases
+    // 2. Register Enemy Hierarchies
+    SpriteRenderer.registerDefinition({
+      id: 'ZAKO',
+      width: 16,
+      height: 16,
+      frames: [ZAKO_FRAME_0_MATRIX, ZAKO_FRAME_1_MATRIX]
+    });
+
+    SpriteRenderer.registerDefinition({
+      id: 'GOEI',
+      width: 16,
+      height: 16,
+      frames: [GOEI_FRAME_0_MATRIX, GOEI_FRAME_1_MATRIX]
+    });
+
+    SpriteRenderer.registerDefinition({
+      id: 'BOSS_HEALTHY',
+      width: 16,
+      height: 16,
+      frames: [BOSS_HEALTHY_FRAME_0_MATRIX, BOSS_HEALTHY_FRAME_1_MATRIX]
+    });
+
+    SpriteRenderer.registerDefinition({
+      id: 'BOSS_DAMAGED',
+      width: 16,
+      height: 16,
+      frames: [BOSS_DAMAGED_FRAME_0_MATRIX, BOSS_DAMAGED_FRAME_1_MATRIX]
+    });
+
+    // 3. Register Transform Bonus Enemies
+    SpriteRenderer.registerDefinition({
+      id: 'TRANSFORM_SCORPION',
+      width: 16,
+      height: 16,
+      frames: [TRANSFORM_SCORPION_FRAME_0_MATRIX, TRANSFORM_SCORPION_FRAME_1_MATRIX]
+    });
+
+    SpriteRenderer.registerDefinition({
+      id: 'TRANSFORM_BOSCONIAN',
+      width: 16,
+      height: 16,
+      frames: [TRANSFORM_BOSCONIAN_FRAME_0_MATRIX]
+    });
+
+    SpriteRenderer.registerDefinition({
+      id: 'TRANSFORM_GALAXIAN',
+      width: 16,
+      height: 16,
+      frames: [TRANSFORM_GALAXIAN_MATRIX]
+    });
+
+    // 4. Pre-bake all registered definitions into offscreen canvases
     for (const [id, def] of SpriteRenderer.definitions) {
       def.frames.forEach((frame, frameIdx) => {
         const bakedCanvas = SpriteRenderer.bakeFrame(def.width, def.height, frame);
@@ -376,8 +638,8 @@ export class SpriteRenderer {
 
     // Fast-path: No rotation, scale 1.0, no flip, full opacity
     if (rotation === 0 && scale === 1.0 && !flipX && !flipY && alpha >= 0.999) {
-      const destX = Math.floor(x - originX);
-      const destY = Math.floor(y - originY);
+      const destX = Math.round(x - originX);
+      const destY = Math.round(y - originY);
       ctx.drawImage(cached, destX, destY);
       return;
     }
@@ -388,7 +650,7 @@ export class SpriteRenderer {
       ctx.globalAlpha = Math.max(0, Math.min(1.0, alpha));
     }
 
-    ctx.translate(Math.floor(x), Math.floor(y));
+    ctx.translate(Math.round(x), Math.round(y));
 
     if (rotation !== 0) {
       ctx.rotate(rotation);
@@ -398,8 +660,51 @@ export class SpriteRenderer {
       ctx.scale(flipX ? -scale : scale, flipY ? -scale : scale);
     }
 
-    ctx.drawImage(cached, -Math.floor(originX), -Math.floor(originY));
+    ctx.drawImage(cached, -Math.round(originX), -Math.round(originY));
     ctx.restore();
+  }
+
+  /**
+   * Helper to draw enemy by type, anim frame, damage state, and rotation.
+   */
+  public static drawEnemy(
+    ctx: CanvasRenderingContext2D,
+    type: EnemyType,
+    x: number,
+    y: number,
+    animFrame: number = 0,
+    health: number = 1,
+    rotation: number = 0,
+    alpha: number = 1.0
+  ): void {
+    let spriteId: string;
+
+    switch (type) {
+      case EnemyType.ZAKO:
+        spriteId = 'ZAKO';
+        break;
+      case EnemyType.GOEI:
+        spriteId = 'GOEI';
+        break;
+      case EnemyType.BOSS:
+        spriteId = health > 1 ? 'BOSS_HEALTHY' : 'BOSS_DAMAGED';
+        break;
+      case EnemyType.CAPTURED_FIGHTER:
+        spriteId = 'CAPTURED_FIGHTER';
+        break;
+      case EnemyType.TRANSFORM:
+        spriteId = 'TRANSFORM_SCORPION';
+        break;
+      default:
+        spriteId = 'ZAKO';
+        break;
+    }
+
+    SpriteRenderer.draw(ctx, spriteId, x, y, {
+      frame: animFrame % 2,
+      rotation,
+      alpha,
+    });
   }
 
   /**

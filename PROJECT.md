@@ -31,7 +31,7 @@
 |---|---|---|---|---|
 | M1 | Project Setup, Build & Git Infrastructure | Vite, TypeScript, ESLint, vercel.json, package.json, .gitignore, Git repo initialization | none | DONE |
 | M2 | Core Engine, Canvas Scaling, Starfield & Input | Game loop, fixed timestep, screen manager, 3-layer parallax starfield, keyboard/mouse/touch input | M1 | DONE |
-| M3 | Player Fighter & Dual Fighter Docking System | Player ship entity, single/dual states, missile firing limits, collision boundaries | M2 | PLANNED |
+| M3 | Player Fighter & Dual Fighter Docking System | Player ship entity, single/dual states, missile firing limits, collision boundaries | M2 | DONE |
 | M4 | Enemy Formation, Bézier Flight Curves & AI Diving | Zako/Goei/Boss Galaga entities, formation grid manager, cubic Bézier entry paths, dive attacks | M2, M3 | PLANNED |
 | M5 | Boss Galaga Tractor Beam & Capture/Rescue Mechanics | Tractor beam ray casting/cone, player capture animation, escort fighter, rescue docking / turncoat handling | M4 | PLANNED |
 | M6 | Procedural Web Audio Synth & Pixel Particle System | Web Audio API synthesizer (all 8+ SFX/jingles), procedural sprite matrix baking, explosion particle system | M2 | PLANNED |
