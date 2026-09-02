@@ -36,7 +36,7 @@
 | M5 | Boss Galaga Tractor Beam & Capture/Rescue Mechanics | Tractor beam ray casting/cone, player capture animation, escort fighter, rescue docking / turncoat handling | M4 | DONE |
 | M6 | Procedural Web Audio Synth & Pixel Particle System | Web Audio API synthesizer (all 8+ SFX/jingles), procedural sprite matrix baking, explosion particle system | M2 | DONE |
 | M7 | UI/UX, Scoring, LocalStorage & Mobile Controls | HUD overlay, score manager, high score local storage, stage badges, touch virtual D-pad/fire button, game over screen | M3, M4, M5, M6 | DONE |
-| M8 | Final Integration, E2E Test Suite & Adversarial Hardening | Full game integration, 100% E2E test pass (Tiers 1-4), Tier 5 adversarial hardening, production build & GitHub push | M1-M7, TEST_READY | PLANNED |
+| M8 | Final Integration, E2E Test Suite & Adversarial Hardening | Full game integration, 100% E2E test pass (Tiers 1-4), Tier 5 adversarial hardening, production build & GitHub push | M1-M7, TEST_READY | DONE |
 
 ## Parallel Track: E2E Testing Track
 | Track | Name | Scope | Status |

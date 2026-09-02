@@ -31,15 +31,21 @@ Gate Result: **PASS** (438/438 unit + 75/75 E2E tests passed)
 ---
 
 ## Gate — Milestone 7
+Gate Result: **PASS** (506/506 unit + 75/75 E2E tests passed)
+
+---
+
+## Gate — Milestone 8 (Final Certification)
 | Agent | Role | Verdict | Source |
 |---|---|---|---|
-| m7_worker | teamwork_preview_worker | DONE (build passed) | handoff.md |
-| m7_reviewer_1 | teamwork_preview_reviewer | APPROVE | handoff.md |
-| m7_reviewer_2 | teamwork_preview_reviewer | APPROVE | handoff.md |
-| m7_challenger_1 | teamwork_preview_challenger | FAIL -> Remediated (22 tests added) | handoff.md |
-| m7_challenger_2 | teamwork_preview_challenger | APPROVE | handoff.md |
-| m7_auditor_1 | teamwork_preview_auditor | CLEAN | handoff.md |
-| m7_fix_worker | teamwork_preview_worker | REMEDIATED & VERIFIED | handoff.md |
+| m8_worker | teamwork_preview_worker | DONE (build passed) | handoff.md |
+| m8_reviewer_1 | teamwork_preview_reviewer | APPROVE | handoff.md |
+| m8_reviewer_2 | teamwork_preview_reviewer | APPROVE | handoff.md |
+| m8_challenger_1 | teamwork_preview_challenger | APPROVE (19 tests added) | handoff.md |
+| m8_challenger_2 | teamwork_preview_challenger | APPROVE | handoff.md |
+| m8_challenger_3 | teamwork_preview_challenger | APPROVE (Adversarial Runner 35/35 passed) | handoff.md |
+| m8_challenger_4 | teamwork_preview_challenger | APPROVE (Vercel dist verified) | handoff.md |
+| m8_auditor_1 | teamwork_preview_auditor | CLEAN | handoff.md |
 
 Gate Result: **PASS**
-Milestone 7 is complete and verified (506/506 unit tests & 75/75 Playwright E2E tests passing).
+Milestone 8 and the entire Galaga Arcade Web Game project is complete, fully verified, and certified **CLEAN** (546/546 unit tests, 90/90 cross-browser tests, 35/35 multi-browser adversarial checks passing with 0 errors).
