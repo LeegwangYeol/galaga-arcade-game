@@ -1,4 +1,4 @@
-# BRIEFING — 2026-09-02T13:54:35Z
+# BRIEFING — 2026-09-02T13:59:15Z
 
 ## Mission
 Develop a fully playable, authentic Galaga arcade web game with Vercel deployment, Git/GitHub integration, high-fidelity audio/visuals, and 100% test verification using a 30+ agent swarm.
@@ -27,11 +27,11 @@ Develop a fully playable, authentic Galaga arcade web game with Vercel deploymen
   5. M4: Enemy Formation, Bézier Flight Paths & AI Diving [done]
   6. M5: Boss Galaga Tractor Beam & Capture/Rescue Mechanics [done]
   7. M6: Web Audio Procedural Chiptune SFX & Visual Particle System [done]
-  8. M7: UI/UX, Scoring, High Score LocalStorage & Mobile Controls [in-progress - verification swarm active]
-  9. M8: Final Integration, E2E Test Suite & Adversarial Hardening [pending]
+  8. M7: UI/UX, Scoring, High Score LocalStorage & Mobile Controls [done]
+  9. M8: Final Integration, E2E Test Suite & Adversarial Hardening [in-progress - Tier 5 Challenger swarm]
   10. E2E Testing Track: Opaque-box Test Harness & Tiers 1-4 Test Suites [done/ready]
-- **Current phase**: 2 (Iteration Loop M7 Verification)
-- **Current focus**: Milestone 7 Verification (m7_reviewer_1, m7_reviewer_2, m7_challenger_1, m7_challenger_2, m7_auditor_1).
+- **Current phase**: 2 (Iteration Loop M8 Tier 5 Hardening)
+- **Current focus**: Milestone 8 Tier 5 Hardening (m8_challenger_1, m8_challenger_2).
 
 ## 🔒 Key Constraints
 - Pure Web Audio API chiptune synthesis (no external audio assets required).
@@ -53,11 +53,8 @@ Develop a fully playable, authentic Galaga arcade web game with Vercel deploymen
 ## Team Roster
 | Agent | Type | Work Item | Status | Conv ID |
 |---|---|---|---|---|
-| m7_reviewer_1 | teamwork_preview_reviewer | M7 Score Reviewer | in-progress | f13ced66-711f-4a73-9483-63b65c2185af |
-| m7_reviewer_2 | teamwork_preview_reviewer | M7 HUD and UX Reviewer | in-progress | f502dc87-8e05-4890-9f20-e88a176b75f3 |
-| m7_challenger_1 | teamwork_preview_challenger | M7 Score Challenger | in-progress | 4e81f94d-d13c-47a0-9118-ce998f8b6ddb |
-| m7_challenger_2 | teamwork_preview_challenger | M7 UX Challenger | in-progress | 3377c9a7-d00b-4e66-b428-8ee9c829305a |
-| m7_auditor_1 | teamwork_preview_auditor | M7 Forensic Auditor | in-progress | e4f362b0-bdfd-4b64-bd15-2f56e6ae4aa6 |
+| m8_challenger_1 | teamwork_preview_challenger | M8 Adversarial Challenger | in-progress | 6f3d1a92-fcd9-4d65-9fb9-63dbbc3caaaa |
+| m8_challenger_2 | teamwork_preview_challenger | M8 Cross-Browser Challenger | in-progress | dd068a48-e456-4292-8035-edc94f9c344a |
 
 ## Active Timers
 - Heartbeat cron: a47fd167-cbab-4c4b-bc2b-cc7faa3d92f7/task-21
