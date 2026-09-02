@@ -1,0 +1,23 @@
+{
+  "name": "galog",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Authentic Galaga 1981 arcade clone built with TypeScript, HTML5 Canvas 2D, and Web Audio API",
+  "scripts": {
+    "dev": "vite --port 3000",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 3000",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^22.13.4",
+    "playwright": "^1.62.1",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0",
+    "vitest": "^3.0.5"
+  }
+}
