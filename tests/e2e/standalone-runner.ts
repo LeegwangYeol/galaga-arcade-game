@@ -60,6 +60,9 @@ export async function runBrowserVerification(
     });
 
     page = await context.newPage();
+    await page.addInitScript(() => {
+      (window as any).__name = (fn: any) => fn;
+    });
 
     // Listen to page errors and console errors
     page.on('pageerror', (err) => {

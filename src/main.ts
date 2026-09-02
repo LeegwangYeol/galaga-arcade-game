@@ -18,7 +18,7 @@ export const VIRTUAL_RESOLUTION: VirtualResolution = {
   aspectRatio: 224 / 288, // ~0.7778
 };
 
-export const CANVAS_ID = 'gameCanvas';
+export const CANVAS_ID = 'game-canvas';
 export const APP_CONTAINER_ID = 'app-container';
 
 // ============================================================================
@@ -83,14 +83,16 @@ export function calculateViewportTransform(
 
 /**
  * Applies the calculated viewport transform to the canvas DOM element.
+ * Uses display dimensions with flexbox container centering to prevent double-offset displacement.
  */
 export function applyCanvasScaling(canvas: HTMLCanvasElement, transform: ViewportTransform): void {
   canvas.style.width = `${transform.displayWidth}px`;
   canvas.style.height = `${transform.displayHeight}px`;
-  canvas.style.left = `${transform.offsetX}px`;
-  canvas.style.top = `${transform.offsetY}px`;
-  canvas.style.position = 'absolute';
+  canvas.style.display = 'block';
   canvas.style.imageRendering = 'pixelated';
+  canvas.style.position = '';
+  canvas.style.left = '';
+  canvas.style.top = '';
 }
 
 /**
@@ -185,7 +187,8 @@ export function bootstrap(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingCo
 
   // Locate or create the canvas element
   let canvas = (document.getElementById(CANVAS_ID) ||
-    document.getElementById('game-canvas')) as HTMLCanvasElement | null;
+    document.getElementById('game-canvas') ||
+    document.getElementById('gameCanvas')) as HTMLCanvasElement | null;
 
   if (!canvas) {
     canvas = document.createElement('canvas');
@@ -193,7 +196,8 @@ export function bootstrap(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingCo
 
     const appContainer =
       document.getElementById(APP_CONTAINER_ID) ||
-      document.getElementById('app');
+      document.getElementById('app') ||
+      document.getElementById('game-container');
 
     if (appContainer) {
       appContainer.appendChild(canvas);

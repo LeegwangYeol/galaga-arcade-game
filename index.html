@@ -53,7 +53,7 @@
       background: radial-gradient(circle at center, #0a0a18 0%, #030306 100%);
     }
 
-    #app-container {
+    #app-container, #game-container {
       position: relative;
       display: flex;
       flex-direction: column;
@@ -77,7 +77,7 @@
       background-color: #000000;
     }
 
-    #gameCanvas {
+    #game-canvas, #gameCanvas {
       display: block;
       /* Authentic Crisp Pixelated Upscaling */
       image-rendering: -moz-crisp-edges;
@@ -173,7 +173,7 @@
 <body>
   <div id="app-container">
     <div class="canvas-wrapper">
-      <canvas id="gameCanvas" width="224" height="288" aria-label="Galaga Arcade Game Screen" role="img"></canvas>
+      <canvas id="game-canvas" width="224" height="288" aria-label="Galaga Arcade Game Screen" role="img"></canvas>
       <div class="scanlines" aria-hidden="true"></div>
     </div>
 
