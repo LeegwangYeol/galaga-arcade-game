@@ -1,4 +1,4 @@
-# BRIEFING — 2026-09-02T13:05:05Z
+# BRIEFING — 2026-09-02T13:35:05Z
 
 ## Mission
 Develop a fully playable, authentic Galaga arcade web game with Vercel deployment, Git/GitHub integration, high-fidelity audio/visuals, and 100% test verification using a 30+ agent swarm.
@@ -24,14 +24,14 @@ Develop a fully playable, authentic Galaga arcade web game with Vercel deploymen
   2. M1: Project Setup, Build & Git Infrastructure [done]
   3. M2: Core Game Loop, Starfield & Input Engine [done]
   4. M3: Player Ship & Dual Fighter Docking System [done]
-  5. M4: Enemy Formation, Bézier Flight Paths & AI Diving [in-progress - verification swarm active]
-  6. M5: Boss Galaga Tractor Beam & Capture/Rescue Mechanics [pending]
-  7. M6: Web Audio Procedural Chiptune SFX & Visual Particle System [pending]
+  5. M4: Enemy Formation, Bézier Flight Paths & AI Diving [done]
+  6. M5: Boss Galaga Tractor Beam & Capture/Rescue Mechanics [done]
+  7. M6: Web Audio Procedural Chiptune SFX & Visual Particle System [in-progress - worker implementing]
   8. M7: UI/UX, Scoring, High Score LocalStorage & Mobile Controls [pending]
   9. M8: Final Integration, E2E Test Suite & Adversarial Hardening [pending]
   10. E2E Testing Track: Opaque-box Test Harness & Tiers 1-4 Test Suites [done/ready]
-- **Current phase**: 2 (Iteration Loop M4 Verification)
-- **Current focus**: Milestone 4 Verification (m4_reviewer_1, m4_reviewer_2, m4_challenger_1, m4_challenger_2, m4_auditor_1).
+- **Current phase**: 2 (Iteration Loop M6 Worker)
+- **Current focus**: Milestone 6 Worker (`m6_worker`) implementing AudioContextManager, SoundSynth, MusicJingles, ParticleSystem, and Game audio/particle wiring.
 
 ## 🔒 Key Constraints
 - Pure Web Audio API chiptune synthesis (no external audio assets required).
@@ -53,11 +53,10 @@ Develop a fully playable, authentic Galaga arcade web game with Vercel deploymen
 ## Team Roster
 | Agent | Type | Work Item | Status | Conv ID |
 |---|---|---|---|---|
-| m4_reviewer_1 | teamwork_preview_reviewer | M4 Enemy & Formation Reviewer | in-progress | e4dc776b-a234-44f0-9f3d-8b078b170686 |
-| m4_reviewer_2 | teamwork_preview_reviewer | M4 Flight Paths & Sprite Reviewer | in-progress | cd8b7e04-daad-4c3d-a440-2efd8ee9f979 |
-| m4_challenger_1 | teamwork_preview_challenger | M4 Formation Breathing Challenger | in-progress | e692b423-a465-48eb-9bf4-ea00460e5a62 |
-| m4_challenger_2 | teamwork_preview_challenger | M4 Kinematics & AI Challenger | in-progress | 3f7eee66-012b-430f-ba2f-096fdd9338e4 |
-| m4_auditor_1 | teamwork_preview_auditor | M4 Forensic Auditor | in-progress | f3ae10a2-3ecc-43c1-a1d2-6fecd21058a3 |
+| m6_explorer_1 | teamwork_preview_explorer | Web Audio SFX Specialist | completed | ad939707-5c2c-4516-8a0d-678449ec6342 |
+| m6_explorer_2 | teamwork_preview_explorer | Chiptune Music Specialist | completed | 0f801dd3-7fba-41a2-b921-ced2be9f8f8c |
+| m6_explorer_3 | teamwork_preview_explorer | Particle System Specialist | completed | 40e66337-2046-4b4c-ac8c-3120787df99b |
+| m6_worker | teamwork_preview_worker | M6 Audio & Particle Implementation | in-progress | 40e296fb-264d-4ad3-afa2-d0e1e539b40e |
 
 ## Active Timers
 - Heartbeat cron: a47fd167-cbab-4c4b-bc2b-cc7faa3d92f7/task-21

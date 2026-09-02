@@ -2,9 +2,10 @@
  * Galaga Arcade Web Game — Master Game Coordinator
  * 
  * Integrates ScreenManager, GameLoop, Starfield, InputHandler, Player, BulletManager,
- * FormationManager, and SpriteRenderer. Implements deterministic game state machine,
- * collision resolution, crisp double-buffered rendering pipeline, and persistent
- * high score management.
+ * FormationManager, TractorBeam, SpriteRenderer, AudioContextManager, SoundSynth,
+ * MusicJingles, and ParticleSystem. Implements deterministic game state machine,
+ * collision resolution, crisp double-buffered rendering pipeline, audio triggers,
+ * and persistent high score management.
  */
 
 import { ScreenManager } from './ScreenManager';
@@ -17,6 +18,10 @@ import { FormationManager } from '../systems/FormationManager';
 import { TractorBeam } from '../entities/TractorBeam';
 import { Enemy } from '../entities/Enemy';
 import { SpriteRenderer } from '../renderer/SpriteRenderer';
+import { AudioContextManager } from '../audio/AudioContextManager';
+import { SoundSynth } from '../audio/SoundSynth';
+import { MusicJingles } from '../audio/MusicJingles';
+import { ParticleSystem } from '../systems/ParticleSystem';
 import { EnemyType, EnemyState } from '../types';
 import type { GameState, IGameEngine, Rect, VirtualResolution } from '../types';
 
@@ -54,6 +59,9 @@ export class Game implements IGameEngine {
   public bulletManager: BulletManager;
   public formationManager: FormationManager;
   public tractorBeam: TractorBeam;
+  public audioContextManager: AudioContextManager;
+  public soundSynth: SoundSynth;
+  public particleSystem: ParticleSystem;
 
   // Core Game State
   public state: GameState = 'BOOT';
@@ -162,6 +170,8 @@ export class Game implements IGameEngine {
         translate: () => {},
         rotate: () => {},
         scale: () => {},
+        arc: () => {},
+        stroke: () => {},
       } as unknown as CanvasRenderingContext2D;
     } else {
       this.ctx = ctx;
@@ -174,12 +184,17 @@ export class Game implements IGameEngine {
     // 4. Load High Score from LocalStorage
     this.loadHighScore();
 
-    // 5. Initialize Core Subsystems
+    // 5. Initialize Core Audio & Particle Subsystems
+    this.audioContextManager = AudioContextManager.getInstance();
+    this.soundSynth = SoundSynth.getInstance(this.audioContextManager);
+    this.particleSystem = new ParticleSystem();
+
+    // 6. Initialize Screen, Starfield & Input Subsystems
     this.screenManager = new ScreenManager(this.canvas, Game.VIRTUAL_WIDTH, Game.VIRTUAL_HEIGHT);
     this.starfield = new Starfield(Game.VIRTUAL_WIDTH, Game.VIRTUAL_HEIGHT);
     this.inputHandler = new InputHandler(this.canvas, this.screenManager, () => this.unlockAudio());
 
-    // 6. Initialize Player & Bullet Subsystems
+    // 7. Initialize Player & Bullet Subsystems
     this.bulletManager = new BulletManager({
       onBulletRecycle: () => {
         if (this.player) {
@@ -204,6 +219,13 @@ export class Game implements IGameEngine {
         );
       }
       this.player.activeMissileCount = this.bulletManager.getPlayerBulletCount();
+
+      // Audio Trigger: Player laser fire
+      if (this.player.isDual) {
+        this.soundSynth.playLaserDual();
+      } else {
+        this.soundSynth.playLaser();
+      }
     };
 
     this.player.onGameOver = () => {
@@ -218,12 +240,14 @@ export class Game implements IGameEngine {
     this.player.onDocked = () => {
       this.score += 1000;
       this.saveHighScore();
+      MusicJingles.playDockingJingle();
+      this.particleSystem.spawnDockingSparkles(this.player.x, this.player.y);
     };
 
-    // 6b. Initialize TractorBeam Subsystem
+    // 8. Initialize TractorBeam Subsystem
     this.tractorBeam = new TractorBeam();
 
-    // 7. Initialize FormationManager Subsystem
+    // 9. Initialize FormationManager Subsystem
     this.formationManager = new FormationManager({
       onEnemyFire: (req) => {
         this.bulletManager.fireEnemyBullet(
@@ -243,10 +267,11 @@ export class Game implements IGameEngine {
       },
       onTractorBeamRequest: (boss) => {
         this.tractorBeam.activate(boss);
+        this.soundSynth.playTractorBeam(true);
       },
     });
 
-    // 8. Initialize GameLoop
+    // 10. Initialize GameLoop
     this.gameLoop = new GameLoop({
       onUpdate: (dt: number) => this.update(dt),
       onRender: (_alpha: number) => this.render(this.ctx),
@@ -255,7 +280,7 @@ export class Game implements IGameEngine {
 
     this.isInitialized = true;
 
-    // 9. Transition to TITLE attract screen
+    // 11. Transition to TITLE attract screen
     this.setState('TITLE');
   }
 
@@ -329,6 +354,9 @@ export class Game implements IGameEngine {
     this.bulletManager.clear();
     this.formationManager.reset();
     this.tractorBeam.reset();
+    this.particleSystem.clear();
+    this.soundSynth.stopAll();
+    MusicJingles.stopAll();
     this.isInitialized = false;
   }
 
@@ -345,10 +373,19 @@ export class Game implements IGameEngine {
         this.starfield.setSpeedState('NORMAL');
         this.formationManager.reset();
         this.tractorBeam.reset();
+        this.particleSystem.clear();
+        this.soundSynth.stopAll();
+        MusicJingles.stopAll();
         break;
       case 'STAGE_INTRO':
         this.starfield.setSpeedState('WARP');
         this.tractorBeam.reset();
+        this.soundSynth.stopTractorBeam();
+        if (this.isChallengingStage(this.stage)) {
+          MusicJingles.playChallengingStageTheme();
+        } else {
+          MusicJingles.playStageStartFanfare();
+        }
         break;
       case 'PLAYING':
       case 'CHALLENGING_STAGE':
@@ -357,10 +394,13 @@ export class Game implements IGameEngine {
       case 'STAGE_CLEAR':
         this.starfield.setSpeedState('NORMAL');
         this.tractorBeam.reset();
+        this.soundSynth.stopTractorBeam();
         break;
       case 'GAME_OVER':
         this.starfield.setSpeedState('NORMAL');
         this.tractorBeam.reset();
+        this.soundSynth.stopTractorBeam();
+        MusicJingles.playGameOverTune();
         this.saveHighScore();
         break;
       case 'PAUSED':
@@ -377,6 +417,7 @@ export class Game implements IGameEngine {
     this.player.reset(112, Player.BASELINE_Y, 3);
     this.formationManager.spawnStage(1);
     this.tractorBeam.reset();
+    this.particleSystem.clear();
     this.setState('STAGE_INTRO');
   }
 
@@ -403,6 +444,9 @@ export class Game implements IGameEngine {
 
     // Update background starfield
     this.starfield.update(dt);
+
+    // Update particle effects
+    this.particleSystem.update(dt);
 
     // Update projectiles
     this.bulletManager.update(dt);
@@ -469,6 +513,20 @@ export class Game implements IGameEngine {
     this.formationManager.update(dt, this.player.x, this.player.y, this.player.isDual);
     this.tractorBeam.update(dt);
 
+    // Tractor beam energy sparkles
+    if (this.tractorBeam.isActive()) {
+      const boss = this.tractorBeam.getBoss();
+      if (boss && Math.random() < 0.45) {
+        const geom = this.tractorBeam.getGeometry();
+        const beamLength = Math.max(10, geom.currentBottomY - geom.originY);
+        const sparkY = geom.originY + Math.random() * (beamLength * 0.9);
+        const progress = Math.max(0, Math.min(1, (sparkY - geom.originY) / beamLength));
+        const widthAtY = geom.topWidth + (geom.bottomWidth - geom.topWidth) * progress;
+        const sparkX = geom.originX + (Math.random() - 0.5) * widthAtY;
+        this.particleSystem.spawnTractorSparkle(sparkX, sparkY);
+      }
+    }
+
     // Perform Collision Detection & Resolution
     this.resolveCollisions();
   }
@@ -490,9 +548,11 @@ export class Game implements IGameEngine {
       boss.escortCount = 1;
       this.formationManager.enemies.push(escort);
       this.tractorBeam.deactivate(true);
+      this.soundSynth.playTractorBeam(false);
       boss.state = EnemyState.RETURNING_TO_FORMATION;
     } else {
       this.tractorBeam.deactivate(true);
+      this.soundSynth.playTractorBeam(false);
     }
   }
 
@@ -507,6 +567,7 @@ export class Game implements IGameEngine {
       this.bulletManager.clear();
       this.formationManager.spawnStage(this.stage);
       this.tractorBeam.reset();
+      this.soundSynth.stopTractorBeam();
       this.setState('STAGE_INTRO');
     }
   }
@@ -521,6 +582,9 @@ export class Game implements IGameEngine {
         this.bulletManager.clear();
         this.formationManager.reset();
         this.tractorBeam.reset();
+        this.particleSystem.clear();
+        this.soundSynth.stopAll();
+        MusicJingles.stopAll();
         this.setState('TITLE');
       }
     }
@@ -559,6 +623,10 @@ export class Game implements IGameEngine {
             const damageResult = enemy.takeDamage(1);
 
             if (damageResult.destroyed) {
+              // Boss Destruction Audio & Visual Particle Burst
+              this.soundSynth.playExplosion('boss');
+              this.particleSystem.spawnBossExplosion(enemy.x, enemy.y);
+
               // Check for attached Captured Fighter Escort
               if (enemy.hasCapturedFighter && enemy.capturedFighterEnemy) {
                 const capturedFighter = enemy.capturedFighterEnemy;
@@ -584,10 +652,15 @@ export class Game implements IGameEngine {
               // If Boss was emitting tractor beam, collapse beam immediately
               if (this.tractorBeam.isActive() && this.tractorBeam.getBoss() === enemy) {
                 this.tractorBeam.deactivate(true);
+                this.soundSynth.playTractorBeam(false);
               }
 
               this.score += damageResult.points;
               this.saveHighScore();
+            } else {
+              // Boss Non-Lethal Armor Deflection Hit
+              this.soundSynth.playBossHit();
+              this.particleSystem.spawnHitSparks(enemy.x, enemy.y);
             }
           }
           // Case B: Shooting Captured Fighter Directly (Accidental Destruction)
@@ -597,6 +670,8 @@ export class Game implements IGameEngine {
           ) {
             const damageResult = enemy.takeDamage(1);
             if (damageResult.destroyed) {
+              this.soundSynth.playExplosion('small');
+              this.particleSystem.spawnSmallAlienExplosion(enemy.x, enemy.y);
               this.score += damageResult.points || 1000;
               this.saveHighScore();
 
@@ -611,6 +686,8 @@ export class Game implements IGameEngine {
           else {
             const damageResult = enemy.takeDamage(1);
             if (damageResult.destroyed) {
+              this.soundSynth.playExplosion('small');
+              this.particleSystem.spawnSmallAlienExplosion(enemy.x, enemy.y);
               this.score += damageResult.points;
               this.saveHighScore();
             }
@@ -664,6 +741,8 @@ export class Game implements IGameEngine {
 
         if (hit) {
           this.bulletManager.recycle(bullet);
+          this.soundSynth.playExplosion('large');
+          this.particleSystem.spawnPlayerExplosion(this.player.x, this.player.y);
           this.lives = this.player.lives;
         }
       });
@@ -681,6 +760,8 @@ export class Game implements IGameEngine {
 
         if (hit) {
           enemy.takeDamage(99); // Destroy enemy on direct ship collision
+          this.soundSynth.playExplosion('large');
+          this.particleSystem.spawnPlayerExplosion(this.player.x, this.player.y);
           this.lives = this.player.lives;
           break;
         }
@@ -868,10 +949,13 @@ export class Game implements IGameEngine {
     // 3. Render Active Projectiles
     this.bulletManager.render(ctx);
 
-    // 4. Render Player Ship & Rescued Docking Ship
+    // 4. Render Particle Explosions & Sparkles (underneath HUD, over entities)
+    this.particleSystem.render(ctx);
+
+    // 5. Render Player Ship & Rescued Docking Ship
     this.player.render(ctx);
 
-    // 5. Challenging Stage Overlay banner if applicable
+    // 6. Challenging Stage Overlay banner if applicable
     if (this.state === 'CHALLENGING_STAGE') {
       ctx.save();
       ctx.font = '8px monospace';
@@ -978,7 +1062,7 @@ export class Game implements IGameEngine {
   }
 
   private unlockAudio(): void {
-    // Web Audio API unlock trigger on first user gesture
+    this.audioContextManager.unlock();
   }
 
   // ==========================================================================
@@ -1015,6 +1099,18 @@ export class Game implements IGameEngine {
 
   public getTractorBeam(): TractorBeam {
     return this.tractorBeam;
+  }
+
+  public getAudioContextManager(): AudioContextManager {
+    return this.audioContextManager;
+  }
+
+  public getSoundSynth(): SoundSynth {
+    return this.soundSynth;
+  }
+
+  public getParticleSystem(): ParticleSystem {
+    return this.particleSystem;
   }
 
   public getCanvas(): HTMLCanvasElement {
