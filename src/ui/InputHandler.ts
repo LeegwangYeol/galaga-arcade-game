@@ -115,6 +115,7 @@ export class InputHandler {
     this.boundDomLeftDown = (e: Event) => {
       if (e.cancelable) e.preventDefault();
       this.notifyUserGesture();
+      this.triggerHaptic(10);
       this.state.touchLeft = true;
       this.state.moveLeft = true;
       this.domBtnLeft?.classList.add('active');
@@ -131,6 +132,7 @@ export class InputHandler {
     this.boundDomRightDown = (e: Event) => {
       if (e.cancelable) e.preventDefault();
       this.notifyUserGesture();
+      this.triggerHaptic(10);
       this.state.touchRight = true;
       this.state.moveRight = true;
       this.domBtnRight?.classList.add('active');
@@ -147,9 +149,11 @@ export class InputHandler {
     this.boundDomFireDown = (e: Event) => {
       if (e.cancelable) e.preventDefault();
       this.notifyUserGesture();
+      this.triggerHaptic(15);
       this.state.touchFire = true;
       this.state.fire = true;
       this.fireTriggered = true;
+      this.restartTriggered = true;
       this.domBtnFire?.classList.add('active');
     };
     this.boundDomFireUp = (e: Event) => {
@@ -459,8 +463,10 @@ export class InputHandler {
 
   private handlePointerDown(e: PointerEvent): void {
     this.notifyUserGesture();
+    this.triggerHaptic(12);
     this.state.fire = true;
     this.fireTriggered = true;
+    this.restartTriggered = true;
     this.updatePointerCoordinates(e.clientX, e.clientY);
   }
 
@@ -533,11 +539,14 @@ export class InputHandler {
         this.state.touchFire = true;
         this.state.fire = true;
         this.fireTriggered = true;
+        this.restartTriggered = true;
+        this.triggerHaptic(15);
       } else {
         // Steering touch zone
         this.touchIdMove = touch.identifier;
         this.updatePointerCoordinates(clientX, clientY);
         this.updateTouchSteering(clientX, rect, windowW);
+        this.triggerHaptic(8);
       }
     }
   }
@@ -633,6 +642,16 @@ export class InputHandler {
     if (!this.userGestureNotified) {
       this.userGestureNotified = true;
       this.onUserGesture?.();
+    }
+  }
+
+  private triggerHaptic(durationMs: number): void {
+    try {
+      if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        navigator.vibrate(durationMs);
+      }
+    } catch {
+      // Graceful fallback on devices that restrict vibration
     }
   }
 

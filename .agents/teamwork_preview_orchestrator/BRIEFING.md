@@ -1,4 +1,4 @@
-# BRIEFING — 2026-09-02T13:35:05Z
+# BRIEFING — 2026-09-02T13:49:25Z
 
 ## Mission
 Develop a fully playable, authentic Galaga arcade web game with Vercel deployment, Git/GitHub integration, high-fidelity audio/visuals, and 100% test verification using a 30+ agent swarm.
@@ -26,12 +26,12 @@ Develop a fully playable, authentic Galaga arcade web game with Vercel deploymen
   4. M3: Player Ship & Dual Fighter Docking System [done]
   5. M4: Enemy Formation, Bézier Flight Paths & AI Diving [done]
   6. M5: Boss Galaga Tractor Beam & Capture/Rescue Mechanics [done]
-  7. M6: Web Audio Procedural Chiptune SFX & Visual Particle System [in-progress - worker implementing]
-  8. M7: UI/UX, Scoring, High Score LocalStorage & Mobile Controls [pending]
+  7. M6: Web Audio Procedural Chiptune SFX & Visual Particle System [done]
+  8. M7: UI/UX, Scoring, High Score LocalStorage & Mobile Controls [in-progress - worker implementing]
   9. M8: Final Integration, E2E Test Suite & Adversarial Hardening [pending]
   10. E2E Testing Track: Opaque-box Test Harness & Tiers 1-4 Test Suites [done/ready]
-- **Current phase**: 2 (Iteration Loop M6 Worker)
-- **Current focus**: Milestone 6 Worker (`m6_worker`) implementing AudioContextManager, SoundSynth, MusicJingles, ParticleSystem, and Game audio/particle wiring.
+- **Current phase**: 2 (Iteration Loop M7 Worker)
+- **Current focus**: Milestone 7 Worker (`m7_worker`) implementing HUD, bitmap font atlas, ScoreManager with LocalStorage, game screens, and mobile touch UX.
 
 ## 🔒 Key Constraints
 - Pure Web Audio API chiptune synthesis (no external audio assets required).
@@ -53,10 +53,10 @@ Develop a fully playable, authentic Galaga arcade web game with Vercel deploymen
 ## Team Roster
 | Agent | Type | Work Item | Status | Conv ID |
 |---|---|---|---|---|
-| m6_explorer_1 | teamwork_preview_explorer | Web Audio SFX Specialist | completed | ad939707-5c2c-4516-8a0d-678449ec6342 |
-| m6_explorer_2 | teamwork_preview_explorer | Chiptune Music Specialist | completed | 0f801dd3-7fba-41a2-b921-ced2be9f8f8c |
-| m6_explorer_3 | teamwork_preview_explorer | Particle System Specialist | completed | 40e66337-2046-4b4c-ac8c-3120787df99b |
-| m6_worker | teamwork_preview_worker | M6 Audio & Particle Implementation | in-progress | 40e296fb-264d-4ad3-afa2-d0e1e539b40e |
+| m7_explorer_1 | teamwork_preview_explorer | HUD and Badges Specialist | completed | 9549974b-45ac-45c2-8855-9773e3614ff4 |
+| m7_explorer_2 | teamwork_preview_explorer | Score & Stats Specialist | completed | fe16bcf6-a9da-4017-a439-c67233ea1ede |
+| m7_explorer_3 | teamwork_preview_explorer | Screens & Touch UX Specialist | completed | 9167761a-d123-4457-bca1-22baf87f1127 |
+| m7_worker | teamwork_preview_worker | M7 UI, HUD & Scoring Implementation | in-progress | 289fb80a-ad8f-4dbc-9f4c-0b3c0ed22ab7 |
 
 ## Active Timers
 - Heartbeat cron: a47fd167-cbab-4c4b-bc2b-cc7faa3d92f7/task-21

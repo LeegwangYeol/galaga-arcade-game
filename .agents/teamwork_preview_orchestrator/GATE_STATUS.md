@@ -21,14 +21,19 @@ Gate Result: **PASS** (303/303 unit + 75/75 E2E tests passed)
 ---
 
 ## Gate — Milestone 5
+Gate Result: **PASS** (370/370 unit + 75/75 E2E tests passed)
+
+---
+
+## Gate — Milestone 6
 | Agent | Role | Verdict | Source |
 |---|---|---|---|
-| m5_worker | teamwork_preview_worker | DONE (build passed) | handoff.md |
-| m5_reviewer_1 | teamwork_preview_reviewer | APPROVE | handoff.md |
-| m5_reviewer_2 | teamwork_preview_reviewer | APPROVE | handoff.md |
-| m5_challenger_1 | teamwork_preview_challenger | APPROVE (19 tests added) | handoff.md |
-| m5_challenger_2 | teamwork_preview_challenger | APPROVE (20 tests added) | handoff.md |
-| m5_auditor_1 | teamwork_preview_auditor | CLEAN | handoff.md |
+| m6_worker | teamwork_preview_worker | DONE (build passed) | handoff.md |
+| m6_reviewer_1 | teamwork_preview_reviewer | APPROVE | handoff.md |
+| m6_reviewer_2 | teamwork_preview_reviewer | APPROVE | handoff.md |
+| m6_challenger_1 | teamwork_preview_challenger | APPROVE (18 tests added) | handoff.md |
+| m6_challenger_2 | teamwork_preview_challenger | APPROVE | handoff.md |
+| m6_auditor_1 | teamwork_preview_auditor | CLEAN | handoff.md |
 
 Gate Result: **PASS**
-Milestone 5 is complete and verified (370/370 unit tests & 75/75 Playwright E2E tests passing).
+Milestone 6 is complete and verified (438/438 unit tests & 75/75 Playwright E2E tests passing).

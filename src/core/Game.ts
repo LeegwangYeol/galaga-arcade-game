@@ -3,9 +3,10 @@
  * 
  * Integrates ScreenManager, GameLoop, Starfield, InputHandler, Player, BulletManager,
  * FormationManager, TractorBeam, SpriteRenderer, AudioContextManager, SoundSynth,
- * MusicJingles, and ParticleSystem. Implements deterministic game state machine,
- * collision resolution, crisp double-buffered rendering pipeline, audio triggers,
- * and persistent high score management.
+ * MusicJingles, ParticleSystem, ScoreManager, HUD, and Screens.
+ * 
+ * Implements deterministic game state machine, collision resolution, double-buffered
+ * rendering pipeline, audio triggers, and persistent high score management.
  */
 
 import { ScreenManager } from './ScreenManager';
@@ -22,6 +23,9 @@ import { AudioContextManager } from '../audio/AudioContextManager';
 import { SoundSynth } from '../audio/SoundSynth';
 import { MusicJingles } from '../audio/MusicJingles';
 import { ParticleSystem } from '../systems/ParticleSystem';
+import { ScoreManager } from '../systems/ScoreManager';
+import { HUD } from '../ui/HUD';
+import { Screens, type ScreenRenderContext } from '../ui/Screens';
 import { EnemyType, EnemyState } from '../types';
 import type { GameState, IGameEngine, Rect, VirtualResolution } from '../types';
 
@@ -62,14 +66,12 @@ export class Game implements IGameEngine {
   public audioContextManager: AudioContextManager;
   public soundSynth: SoundSynth;
   public particleSystem: ParticleSystem;
+  public scoreManager: ScoreManager;
+  public hud: HUD;
 
   // Core Game State
   public state: GameState = 'BOOT';
   public previousState: GameState | null = null;
-  public stage: number = 1;
-  public score: number = 0;
-  public highScore: number = 20000;
-  public lives: number = 3;
 
   // State Timing & Visual Accumulators
   public stateTimer: number = 0;
@@ -178,11 +180,13 @@ export class Game implements IGameEngine {
       this.ctx.imageSmoothingEnabled = false;
     }
 
-    // 3. Initialize Procedural SpriteRenderer Pre-Baking
+    // 3. Initialize Procedural SpriteRenderer & HUD Pre-Baking
     SpriteRenderer.initialize();
+    HUD.initialize();
 
-    // 4. Load High Score from LocalStorage
-    this.loadHighScore();
+    // 4. Initialize ScoreManager with LocalStorage persistence
+    this.scoreManager = new ScoreManager();
+    this.hud = new HUD();
 
     // 5. Initialize Core Audio & Particle Subsystems
     this.audioContextManager = AudioContextManager.getInstance();
@@ -206,7 +210,15 @@ export class Game implements IGameEngine {
     this.player = new Player({
       x: 112,
       y: Player.BASELINE_Y,
-      lives: this.lives,
+      lives: this.scoreManager.lives,
+    });
+
+    // Wire extra life callback to add life to player and trigger audio
+    this.scoreManager.onExtraLife((count: number) => {
+      if (this.player) {
+        this.player.lives += count;
+      }
+      MusicJingles.playDockingJingle();
     });
 
     this.player.onFire = (spawns) => {
@@ -217,6 +229,7 @@ export class Game implements IGameEngine {
           this.player.isDual,
           Math.abs(s.vy)
         );
+        this.scoreManager.recordShotFired(1);
       }
       this.player.activeMissileCount = this.bulletManager.getPlayerBulletCount();
 
@@ -229,7 +242,6 @@ export class Game implements IGameEngine {
     };
 
     this.player.onGameOver = () => {
-      this.lives = 0;
       this.setState('GAME_OVER');
     };
 
@@ -238,8 +250,7 @@ export class Game implements IGameEngine {
     };
 
     this.player.onDocked = () => {
-      this.score += 1000;
-      this.saveHighScore();
+      this.scoreManager.addScore(1000);
       MusicJingles.playDockingJingle();
       this.particleSystem.spawnDockingSparkles(this.player.x, this.player.y);
     };
@@ -259,10 +270,16 @@ export class Game implements IGameEngine {
         );
       },
       onEnemyDestroyed: (_enemy, points) => {
-        this.score += points;
-        this.saveHighScore();
+        this.scoreManager.addScore(points);
       },
       onStageClear: () => {
+        if (this.isChallengingStage(this.stage)) {
+          // Process challenging stage bonus
+          this.scoreManager.addChallengingStageBonus(this.scoreManager.challengingHits);
+          if (this.scoreManager.challengingHits === 40) {
+            MusicJingles.playBonusFanfare();
+          }
+        }
         this.setState('STAGE_CLEAR');
       },
       onTractorBeamRequest: (boss) => {
@@ -282,6 +299,47 @@ export class Game implements IGameEngine {
 
     // 11. Transition to TITLE attract screen
     this.setState('TITLE');
+  }
+
+  // ==========================================================================
+  // Backward-Compatible Accessors for Tests
+  // ==========================================================================
+
+  public get score(): number {
+    return this.scoreManager ? this.scoreManager.score : 0;
+  }
+  public set score(val: number) {
+    if (this.scoreManager) {
+      (this.scoreManager as unknown as { _score: number })._score = val;
+    }
+  }
+
+  public get highScore(): number {
+    return this.scoreManager ? this.scoreManager.highScore : 20000;
+  }
+  public set highScore(val: number) {
+    if (this.scoreManager) {
+      (this.scoreManager as unknown as { _highScore: number })._highScore = val;
+    }
+  }
+
+  public get stage(): number {
+    return this.scoreManager ? this.scoreManager.stage : 1;
+  }
+  public set stage(val: number) {
+    if (this.scoreManager) {
+      this.scoreManager.setStage(val);
+    }
+  }
+
+  public get lives(): number {
+    return this.player ? this.player.lives : (this.scoreManager ? this.scoreManager.lives : 3);
+  }
+  public set lives(val: number) {
+    if (this.player) this.player.lives = val;
+    if (this.scoreManager) {
+      (this.scoreManager as unknown as { _lives: number })._lives = val;
+    }
   }
 
   // ==========================================================================
@@ -401,7 +459,7 @@ export class Game implements IGameEngine {
         this.tractorBeam.reset();
         this.soundSynth.stopTractorBeam();
         MusicJingles.playGameOverTune();
-        this.saveHighScore();
+        this.scoreManager.saveHighScore();
         break;
       case 'PAUSED':
         this.starfield.setSpeedState('PAUSED');
@@ -410,9 +468,7 @@ export class Game implements IGameEngine {
   }
 
   public startGame(): void {
-    this.stage = 1;
-    this.score = 0;
-    this.lives = 3;
+    this.scoreManager.reset(3, 1);
     this.bulletManager.clear();
     this.player.reset(112, Player.BASELINE_Y, 3);
     this.formationManager.spawnStage(1);
@@ -432,6 +488,7 @@ export class Game implements IGameEngine {
   public update(dt: number): void {
     this.stateTimer += dt;
     this.blinkTimer += dt;
+    this.hud.update(dt);
 
     // Check pause action pulse
     if (this.inputHandler.consumeAction('pause')) {
@@ -452,9 +509,8 @@ export class Game implements IGameEngine {
     this.bulletManager.update(dt);
     this.player.activeMissileCount = this.bulletManager.getPlayerBulletCount();
 
-    // Sync lives & score with player
-    this.lives = this.player.lives;
-    this.player.score = this.score;
+    // Sync score & lives with player
+    this.player.score = this.scoreManager.score;
 
     // State machine updates
     switch (this.state) {
@@ -500,6 +556,7 @@ export class Game implements IGameEngine {
         this.formationManager.spawnStage(this.stage);
       }
       if (this.isChallengingStage(this.stage)) {
+        this.scoreManager.resetChallengingHits();
         this.setState('CHALLENGING_STAGE');
       } else {
         this.setState('PLAYING');
@@ -561,9 +618,10 @@ export class Game implements IGameEngine {
   }
 
   private updateStageClear(_dt: number): void {
-    // 1.8 seconds stage clear intermission
-    if (this.stateTimer >= 1.8) {
-      this.stage += 1;
+    // 2.5 seconds stage clear intermission (ample time to read challenging results)
+    const clearDuration = this.isChallengingStage(this.stage) ? 2.8 : 1.8;
+    if (this.stateTimer >= clearDuration) {
+      this.scoreManager.advanceStage();
       this.bulletManager.clear();
       this.formationManager.spawnStage(this.stage);
       this.tractorBeam.reset();
@@ -612,6 +670,11 @@ export class Game implements IGameEngine {
 
         if (checkAABB(bulletBox, enemyBox)) {
           this.bulletManager.recycle(bullet);
+          this.scoreManager.recordShotHit(1);
+
+          if (this.state === 'CHALLENGING_STAGE') {
+            this.scoreManager.recordChallengingHit(1);
+          }
 
           // Case A: Shooting Boss Galaga
           if (enemy.type === EnemyType.BOSS) {
@@ -636,7 +699,7 @@ export class Game implements IGameEngine {
                   capturedFighter.active = false;
                   capturedFighter.state = EnemyState.INACTIVE;
                   this.player.startRescue(enemy.x, enemy.y);
-                  this.score += 1000; // Rescue bonus
+                  this.scoreManager.addScore(1000); // Rescue bonus
                 } else {
                   // TURNCOAT DIVERGENCE FLOW (Destroyed in formation)
                   capturedFighter.state = EnemyState.CAPTURED_HOSTILE;
@@ -655,8 +718,7 @@ export class Game implements IGameEngine {
                 this.soundSynth.playTractorBeam(false);
               }
 
-              this.score += damageResult.points;
-              this.saveHighScore();
+              this.scoreManager.addScoreForEnemy(enemy.type, isDiving, enemy.escortCount);
             } else {
               // Boss Non-Lethal Armor Deflection Hit
               this.soundSynth.playBossHit();
@@ -668,12 +730,12 @@ export class Game implements IGameEngine {
             enemy.type === EnemyType.CAPTURED_FIGHTER ||
             enemy.state === EnemyState.CAPTURED_HOSTILE
           ) {
+            const isDiving = enemy.state === EnemyState.CAPTURED_HOSTILE || enemy.state === EnemyState.DIVING_ESCORT;
             const damageResult = enemy.takeDamage(1);
             if (damageResult.destroyed) {
               this.soundSynth.playExplosion('small');
               this.particleSystem.spawnSmallAlienExplosion(enemy.x, enemy.y);
-              this.score += damageResult.points || 1000;
-              this.saveHighScore();
+              this.scoreManager.addScoreForCapturedFighter(isDiving);
 
               if (enemy.escortBoss) {
                 enemy.escortBoss.hasCapturedFighter = false;
@@ -684,12 +746,12 @@ export class Game implements IGameEngine {
           }
           // Case C: Standard Enemies (Zako, Goei, Transform)
           else {
+            const isDiving = enemy.state === EnemyState.DIVING_SOLO || enemy.state === EnemyState.DIVING_ESCORT;
             const damageResult = enemy.takeDamage(1);
             if (damageResult.destroyed) {
               this.soundSynth.playExplosion('small');
               this.particleSystem.spawnSmallAlienExplosion(enemy.x, enemy.y);
-              this.score += damageResult.points;
-              this.saveHighScore();
+              this.scoreManager.addScoreForEnemy(enemy.type, isDiving);
             }
           }
 
@@ -743,7 +805,6 @@ export class Game implements IGameEngine {
           this.bulletManager.recycle(bullet);
           this.soundSynth.playExplosion('large');
           this.particleSystem.spawnPlayerExplosion(this.player.x, this.player.y);
-          this.lives = this.player.lives;
         }
       });
     }
@@ -762,7 +823,6 @@ export class Game implements IGameEngine {
           enemy.takeDamage(99); // Destroy enemy on direct ship collision
           this.soundSynth.playExplosion('large');
           this.particleSystem.spawnPlayerExplosion(this.player.x, this.player.y);
-          this.lives = this.player.lives;
           break;
         }
       }
@@ -788,155 +848,65 @@ export class Game implements IGameEngine {
     // 2. Render Starfield Layer (z-index: 0)
     this.starfield.render(targetCtx);
 
+    const hudState = {
+      score: this.scoreManager.score,
+      highScore: this.scoreManager.highScore,
+      lives: this.player ? this.player.lives : this.scoreManager.lives,
+      stage: this.scoreManager.stage,
+      is1UpBlinking: this.state === 'PLAYING' || this.state === 'CHALLENGING_STAGE',
+    };
+
     // 3. Render HUD Score Header (z-index: 6)
-    this.renderHUD(targetCtx);
+    this.hud.renderHeader(targetCtx, hudState);
+
+    const screenCtx: ScreenRenderContext = {
+      ctx: targetCtx,
+      width,
+      height,
+      stateTimer: this.stateTimer,
+      blinkTimer: this.blinkTimer,
+      score: this.scoreManager.score,
+      highScore: this.scoreManager.highScore,
+      stage: this.scoreManager.stage,
+      lives: this.player ? this.player.lives : this.scoreManager.lives,
+      shotsFired: this.scoreManager.shotsFired,
+      hits: this.scoreManager.shotsHit,
+      challengingHits: this.scoreManager.challengingHits,
+      isDual: this.player ? this.player.isDual : false,
+    };
 
     // 4. Render Active Screen State Overlay (z-index: 7)
     switch (this.state) {
       case 'TITLE':
-        this.renderTitleScreen(targetCtx);
+        Screens.renderTitleScreen(screenCtx);
         break;
       case 'STAGE_INTRO':
-        this.renderStageIntroScreen(targetCtx);
+        Screens.renderStageIntro(screenCtx);
         break;
       case 'PLAYING':
       case 'CHALLENGING_STAGE':
         this.renderPlayingScreen(targetCtx);
         break;
       case 'STAGE_CLEAR':
-        this.renderStageClearScreen(targetCtx);
+        if (this.isChallengingStage(this.stage)) {
+          Screens.renderChallengingResults(screenCtx);
+        } else {
+          this.renderStageClearScreen(targetCtx);
+        }
         break;
       case 'GAME_OVER':
-        this.renderGameOverScreen(targetCtx);
+        Screens.renderGameOver(screenCtx);
         break;
       case 'PAUSED':
         this.renderPlayingScreen(targetCtx);
-        this.renderPauseOverlay(targetCtx);
+        Screens.renderPauseOverlay(screenCtx);
         break;
       default:
         break;
     }
 
     // 5. Render HUD Footer (Lives & Stage Badges)
-    this.renderHUDFooter(targetCtx);
-  }
-
-  // ==========================================================================
-  // HUD & Screen Renderers
-  // ==========================================================================
-
-  private renderHUD(ctx: CanvasRenderingContext2D): void {
-    const width = Game.VIRTUAL_WIDTH;
-
-    ctx.save();
-    ctx.font = '8px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-
-    // 1UP Header
-    ctx.fillStyle = '#FF0000';
-    ctx.fillText('1UP', 36, 6);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillText(this.score.toString().padStart(2, '0'), 36, 16);
-
-    // HIGH SCORE Header
-    ctx.fillStyle = '#FF0000';
-    ctx.fillText('HIGH SCORE', width / 2, 6);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillText(this.highScore.toString(), width / 2, 16);
-
-    // 2UP Header
-    ctx.fillStyle = '#00FFFF';
-    ctx.fillText('2UP', width - 36, 6);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillText('00', width - 36, 16);
-
-    ctx.restore();
-  }
-
-  private renderHUDFooter(ctx: CanvasRenderingContext2D): void {
-    const height = Game.VIRTUAL_HEIGHT;
-
-    ctx.save();
-    // Render remaining reserve lives (authentic Galaga displays reserve lives)
-    const reserveLives = Math.max(0, this.lives - 1);
-    for (let i = 0; i < Math.min(5, reserveLives); i++) {
-      const lx = 16 + i * 14;
-      const ly = height - 12;
-      SpriteRenderer.draw(ctx, 'PLAYER_LIFE_ICON', lx, ly);
-    }
-
-    // Render Stage Badge number
-    ctx.font = '8px monospace';
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'bottom';
-    ctx.fillStyle = '#FFFF00';
-    ctx.fillText(`STAGE ${this.stage}`, Game.VIRTUAL_WIDTH - 8, height - 4);
-
-    ctx.restore();
-  }
-
-  private renderTitleScreen(ctx: CanvasRenderingContext2D): void {
-    const width = Game.VIRTUAL_WIDTH;
-    const height = Game.VIRTUAL_HEIGHT;
-
-    ctx.save();
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    // Galaga Main Logo
-    ctx.font = '16px monospace';
-    ctx.fillStyle = '#FFFF00';
-    ctx.fillText('GALAGA', width / 2, height / 2 - 32);
-
-    ctx.font = '8px monospace';
-    ctx.fillStyle = '#00FFFF';
-    ctx.fillText('ARCADE WEB ENGINE', width / 2, height / 2 - 14);
-
-    // Blinking Press Any Key Prompt (Blinks at ~2.5Hz)
-    const isVisible = Math.floor(this.blinkTimer * 2.5) % 2 === 0;
-    if (isVisible) {
-      ctx.fillStyle = '#FF3333';
-      ctx.fillText('PRESS ANY KEY TO START', width / 2, height / 2 + 16);
-    }
-
-    ctx.fillStyle = '#FFFF00';
-    ctx.fillText('PUSH START BUTTON', width / 2, height / 2 + 32);
-
-    // Copyright & Namco Attribution
-    ctx.fillStyle = '#888888';
-    ctx.font = '6px monospace';
-    ctx.fillText('© 1981 NAMCO BANDAI / WEB ADAPTATION', width / 2, height - 24);
-
-    ctx.restore();
-  }
-
-  private renderStageIntroScreen(ctx: CanvasRenderingContext2D): void {
-    const width = Game.VIRTUAL_WIDTH;
-    const height = Game.VIRTUAL_HEIGHT;
-
-    ctx.save();
-    ctx.font = '8px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    // PLAYER ONE Banner
-    ctx.fillStyle = '#00FFFF';
-    ctx.fillText('PLAYER ONE', width / 2, height / 2 - 16);
-
-    // STAGE XX Banner
-    ctx.fillStyle = '#FFFF00';
-    if (this.isChallengingStage(this.stage)) {
-      ctx.fillText('CHALLENGING STAGE', width / 2, height / 2);
-    } else {
-      ctx.fillText(`STAGE ${this.stage.toString().padStart(2, '0')}`, width / 2, height / 2);
-    }
-
-    // READY Banner
-    ctx.fillStyle = '#FF0000';
-    ctx.fillText('READY', width / 2, height / 2 + 16);
-
-    ctx.restore();
+    this.hud.renderFooter(targetCtx, hudState);
   }
 
   private renderPlayingScreen(ctx: CanvasRenderingContext2D): void {
@@ -957,12 +927,10 @@ export class Game implements IGameEngine {
 
     // 6. Challenging Stage Overlay banner if applicable
     if (this.state === 'CHALLENGING_STAGE') {
-      ctx.save();
-      ctx.font = '8px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillStyle = '#00FFFF';
-      ctx.fillText('CHALLENGING STAGE', Game.VIRTUAL_WIDTH / 2, 40);
-      ctx.restore();
+      HUD.drawText(ctx, 'CHALLENGING STAGE', Game.VIRTUAL_WIDTH / 2, 40, {
+        color: '#00FFFF',
+        align: 'center',
+      });
     }
   }
 
@@ -970,96 +938,15 @@ export class Game implements IGameEngine {
     const width = Game.VIRTUAL_WIDTH;
     const height = Game.VIRTUAL_HEIGHT;
 
-    ctx.save();
-    ctx.font = '8px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    ctx.fillStyle = '#00FF00';
-    ctx.fillText('STAGE CLEAR', width / 2, height / 2);
-
-    ctx.restore();
-  }
-
-  private renderGameOverScreen(ctx: CanvasRenderingContext2D): void {
-    const width = Game.VIRTUAL_WIDTH;
-    const height = Game.VIRTUAL_HEIGHT;
-
-    ctx.save();
-    ctx.font = '10px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    ctx.fillStyle = '#FF0000';
-    ctx.fillText('GAME OVER', width / 2, height / 2 - 10);
-
-    const isVisible = Math.floor(this.blinkTimer * 2) % 2 === 0;
-    if (isVisible) {
-      ctx.font = '8px monospace';
-      ctx.fillStyle = '#FFFF00';
-      ctx.fillText('PRESS FIRE OR ENTER', width / 2, height / 2 + 16);
-    }
-
-    ctx.restore();
-  }
-
-  private renderPauseOverlay(ctx: CanvasRenderingContext2D): void {
-    const width = Game.VIRTUAL_WIDTH;
-    const height = Game.VIRTUAL_HEIGHT;
-
-    ctx.save();
-    // Translucent black tint
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
-    ctx.fillRect(0, 0, width, height);
-
-    ctx.font = '12px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#FFFF00';
-    ctx.fillText('PAUSED', width / 2, height / 2 - 8);
-
-    ctx.font = '8px monospace';
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillText('PRESS P OR ESC TO RESUME', width / 2, height / 2 + 12);
-
-    ctx.restore();
+    HUD.drawText(ctx, 'STAGE CLEAR', width / 2, height / 2, {
+      color: '#00FF00',
+      align: 'center',
+    });
   }
 
   // ==========================================================================
   // Persistence & Audio Hooks
   // ==========================================================================
-
-  private loadHighScore(): void {
-    if (typeof localStorage !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(Game.HIGH_SCORE_STORAGE_KEY);
-        if (saved) {
-          const parsed = parseInt(saved, 10);
-          if (!isNaN(parsed) && parsed > 0) {
-            this.highScore = parsed;
-          }
-        }
-      } catch {
-        // LocalStorage access denied
-      }
-    }
-  }
-
-  private saveHighScore(): void {
-    if (this.score > this.highScore) {
-      this.highScore = this.score;
-      if (typeof localStorage !== 'undefined') {
-        try {
-          localStorage.setItem(
-            Game.HIGH_SCORE_STORAGE_KEY,
-            this.highScore.toString()
-          );
-        } catch {
-          // LocalStorage access denied
-        }
-      }
-    }
-  }
 
   private unlockAudio(): void {
     this.audioContextManager.unlock();
@@ -1111,6 +998,14 @@ export class Game implements IGameEngine {
 
   public getParticleSystem(): ParticleSystem {
     return this.particleSystem;
+  }
+
+  public getScoreManager(): ScoreManager {
+    return this.scoreManager;
+  }
+
+  public getHUD(): HUD {
+    return this.hud;
   }
 
   public getCanvas(): HTMLCanvasElement {
