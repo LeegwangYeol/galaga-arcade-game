@@ -1,4 +1,4 @@
-# BRIEFING — 2026-09-02T12:06:15Z
+# BRIEFING — 2026-09-02T12:26:35Z
 
 ## Mission
 Develop a fully playable, authentic Galaga arcade web game with Vercel deployment, Git/GitHub integration, high-fidelity audio/visuals, and 100% test verification using a 30+ agent swarm.
@@ -21,17 +21,17 @@ Develop a fully playable, authentic Galaga arcade web game with Vercel deploymen
 - **Work items**:
   0. Survey full scope (3 parallel Explorers) [done]
   1. Decompose & Initialize PROJECT.md and TEST_INFRA.md [done]
-  2. M1: Project Setup, Build & Git Infrastructure [in-progress]
-  3. M2: Core Game Loop, Starfield & Input Engine [pending]
+  2. M1: Project Setup, Build & Git Infrastructure [done]
+  3. M2: Core Game Loop, Starfield & Input Engine [in-progress - worker implementing]
   4. M3: Player Ship & Dual Fighter Docking System [pending]
   5. M4: Enemy Formation, Bézier Flight Paths & AI Diving [pending]
   6. M5: Boss Galaga Tractor Beam & Capture/Rescue Mechanics [pending]
   7. M6: Web Audio Procedural Chiptune SFX & Visual Particle System [pending]
   8. M7: UI/UX, Scoring, High Score LocalStorage & Mobile Controls [pending]
   9. M8: Final Integration, E2E Test Suite & Adversarial Hardening [pending]
-  10. E2E Testing Track: Opaque-box Test Harness & Tiers 1-4 Test Suites [in-progress]
-- **Current phase**: 2 (Iteration Loop M1 & E2E Track)
-- **Current focus**: Milestone 1 Worker executing project boilerplate, package.json, TypeScript setup, npm install, build & git initialization.
+  10. E2E Testing Track: Opaque-box Test Harness & Tiers 1-4 Test Suites [done/ready]
+- **Current phase**: 2 (Iteration Loop M2 Worker)
+- **Current focus**: Milestone 2 Worker (`m2_worker`) implementing core loop, screen manager, starfield, input handler, and game coordinator.
 
 ## 🔒 Key Constraints
 - Pure Web Audio API chiptune synthesis (no external audio assets required).
@@ -53,22 +53,10 @@ Develop a fully playable, authentic Galaga arcade web game with Vercel deploymen
 ## Team Roster
 | Agent | Type | Work Item | Status | Conv ID |
 |---|---|---|---|---|
-| survey_explorer_1 | teamwork_preview_explorer | Arcade Galaga Game Mechanics Survey | completed | 8d9c19ae-1039-4638-84b9-545f80b18b5b |
-| survey_explorer_2 | teamwork_preview_explorer | Canvas 2D & Web Audio Architecture Survey | completed | a5fce340-0a5f-41de-8142-370467c9c830 |
-| survey_spec_miner_3 | teamwork_preview_spec_miner | Build, Vercel & E2E Test Specification | completed | 26850807-2444-458d-b2dc-3f171bcde422 |
-| m1_explorer_1 | teamwork_preview_explorer | M1 Build & Config Specialist | completed | 218dd014-7410-4986-9915-f5546a704fad |
-| m1_explorer_2 | teamwork_preview_explorer | M1 Git & Version Control Specialist | completed | a91a0803-3933-4c83-91ce-e082fe59c02a |
-| m1_explorer_3 | teamwork_preview_explorer | M1 Package & Boilerplate Specialist | completed | 1c4e4a45-5710-4902-a834-3c2057501d80 |
-| e2e_test_writer_1 | teamwork_preview_test_writer | Unit & Math Test Architect | in-progress | 540e605d-fcbb-49b8-9702-a21b9c50af57 |
-| e2e_test_writer_2 | teamwork_preview_test_writer | Browser Runtime & Playwright Architect | in-progress | 12e6bb66-6966-490d-9295-6c48558f3e3e |
-| m1_worker | teamwork_preview_worker | M1 Implementation & Git Init | in-progress | 10f074c6-873a-4162-be42-408cf288fe03 |
-
-## Succession Status
-- Succession required: no
-- Spawn count: 9 / 16
-- Pending subagents: 540e605d-fcbb-49b8-9702-a21b9c50af57, 12e6bb66-6966-490d-9295-6c48558f3e3e, 10f074c6-873a-4162-be42-408cf288fe03
-- Predecessor: none
-- Successor: not yet spawned
+| m2_explorer_1 | teamwork_preview_explorer | Game Loop & Object Pool Specialist | completed | a1ae3e60-fe8a-4822-8633-eadae1fa4d2f |
+| m2_explorer_2 | teamwork_preview_explorer | Screen Manager & Starfield Specialist | completed | a51bad0b-efc3-4a46-9882-960c5a15d964 |
+| m2_explorer_3 | teamwork_preview_explorer | Input & Game Coordinator Specialist | completed | b15f3564-3749-4507-b435-c8a5c30bd19b |
+| m2_worker | teamwork_preview_worker | M2 Core Engine Implementation | in-progress | 2e07612b-2eb9-4430-9464-ef1264be2269 |
 
 ## Active Timers
 - Heartbeat cron: a47fd167-cbab-4c4b-bc2b-cc7faa3d92f7/task-21
@@ -79,3 +67,4 @@ Develop a fully playable, authentic Galaga arcade web game with Vercel deploymen
 - /Users/user/src/galog/COLLABORATION.md — Claude collaboration guide
 - /Users/user/src/galog/PROJECT.md — Global architecture and milestone decomposition
 - /Users/user/src/galog/TEST_INFRA.md — E2E test suite plan and test architecture
+- /Users/user/src/galog/.agents/teamwork_preview_orchestrator/GATE_STATUS.md — Gate verdicts

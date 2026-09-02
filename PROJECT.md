@@ -29,7 +29,7 @@
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|---|---|---|---|
-| M1 | Project Setup, Build & Git Infrastructure | Vite, TypeScript, ESLint, vercel.json, package.json, .gitignore, Git repo initialization | none | PLANNED |
+| M1 | Project Setup, Build & Git Infrastructure | Vite, TypeScript, ESLint, vercel.json, package.json, .gitignore, Git repo initialization | none | DONE |
 | M2 | Core Engine, Canvas Scaling, Starfield & Input | Game loop, fixed timestep, screen manager, 3-layer parallax starfield, keyboard/mouse/touch input | M1 | PLANNED |
 | M3 | Player Fighter & Dual Fighter Docking System | Player ship entity, single/dual states, missile firing limits, collision boundaries | M2 | PLANNED |
 | M4 | Enemy Formation, Bézier Flight Curves & AI Diving | Zako/Goei/Boss Galaga entities, formation grid manager, cubic Bézier entry paths, dive attacks | M2, M3 | PLANNED |
