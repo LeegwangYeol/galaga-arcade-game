@@ -411,6 +411,8 @@ export class FormationManager {
     enemy.pathElapsedMs = 0;
     enemy.state = EnemyState.DIVING_SOLO;
     enemy.escortCount = 0;
+    enemy.escortBossId = null;
+    enemy.escortBoss = null;
 
     const returnSlot = this.getSlotPosition(enemy.row, enemy.col, this.elapsedTime + 4.0);
     enemy.returnSlotX = returnSlot.x;
@@ -427,6 +429,9 @@ export class FormationManager {
     leftGoei.flightPath = leftPath;
     leftGoei.pathElapsedMs = 0;
     leftGoei.state = EnemyState.DIVING_SOLO;
+    leftGoei.escortCount = 0;
+    leftGoei.escortBossId = null;
+    leftGoei.escortBoss = null;
     const leftSlot = this.getSlotPosition(leftGoei.row, leftGoei.col, this.elapsedTime + 4.0);
     leftGoei.returnSlotX = leftSlot.x;
     leftGoei.returnSlotY = leftSlot.y;
@@ -434,6 +439,9 @@ export class FormationManager {
     rightGoei.flightPath = rightPath;
     rightGoei.pathElapsedMs = 0;
     rightGoei.state = EnemyState.DIVING_SOLO;
+    rightGoei.escortCount = 0;
+    rightGoei.escortBossId = null;
+    rightGoei.escortBoss = null;
     const rightSlot = this.getSlotPosition(rightGoei.row, rightGoei.col, this.elapsedTime + 4.0);
     rightGoei.returnSlotX = rightSlot.x;
     rightGoei.returnSlotY = rightSlot.y;
@@ -449,6 +457,8 @@ export class FormationManager {
     boss.pathElapsedMs = 0;
     boss.state = EnemyState.DIVING_ESCORT;
     boss.escortCount = escorts.length;
+    boss.escortBossId = null;
+    boss.escortBoss = null;
     const bossSlot = this.getSlotPosition(boss.row, boss.col, this.elapsedTime + 4.0);
     boss.returnSlotX = bossSlot.x;
     boss.returnSlotY = bossSlot.y;
@@ -458,16 +468,19 @@ export class FormationManager {
       if (!escort) continue;
 
       const isLeftWing = i === 0;
-      const escortPath = FlightPathManager.createSoloDivePath(
+      const escortPath = FlightPathManager.createBossEscortWingmanPath(
+        { x: boss.x, y: boss.y },
         { x: escort.x, y: escort.y },
-        playerX + (isLeftWing ? -20 : 20),
-        isLeftWing
+        playerX,
+        isLeftWing,
+        bossPath
       );
 
       escort.flightPath = escortPath;
-      escort.pathElapsedMs = -150; // Follow slightly behind boss
+      escort.pathElapsedMs = 0; // Synchronized with Boss
       escort.state = EnemyState.DIVING_ESCORT;
       escort.escortBossId = boss.id;
+      escort.escortBoss = boss;
       const escortSlot = this.getSlotPosition(escort.row, escort.col, this.elapsedTime + 4.0);
       escort.returnSlotX = escortSlot.x;
       escort.returnSlotY = escortSlot.y;

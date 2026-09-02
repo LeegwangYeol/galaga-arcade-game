@@ -163,7 +163,7 @@ export class BezierCurve {
       velocity,
       tangent: tan,
       heading: head,
-      distance: Math.min(distance, this.lutLength),
+      distance: Math.max(0, Math.min(distance, this.lutLength)),
     };
   }
 
@@ -297,7 +297,7 @@ export class QuadraticBezier {
       velocity: this.derivative(t),
       tangent: this.tangent(t),
       heading: this.heading(t, orientationOffsetRad),
-      distance: Math.min(distance, this.lutLength),
+      distance: Math.max(0, Math.min(distance, this.lutLength)),
     };
   }
 

@@ -1,4 +1,4 @@
-# BRIEFING — 2026-09-02T12:58:05Z
+# BRIEFING — 2026-09-02T13:05:05Z
 
 ## Mission
 Develop a fully playable, authentic Galaga arcade web game with Vercel deployment, Git/GitHub integration, high-fidelity audio/visuals, and 100% test verification using a 30+ agent swarm.
@@ -24,14 +24,14 @@ Develop a fully playable, authentic Galaga arcade web game with Vercel deploymen
   2. M1: Project Setup, Build & Git Infrastructure [done]
   3. M2: Core Game Loop, Starfield & Input Engine [done]
   4. M3: Player Ship & Dual Fighter Docking System [done]
-  5. M4: Enemy Formation, Bézier Flight Paths & AI Diving [in-progress - worker implementing]
+  5. M4: Enemy Formation, Bézier Flight Paths & AI Diving [in-progress - verification swarm active]
   6. M5: Boss Galaga Tractor Beam & Capture/Rescue Mechanics [pending]
   7. M6: Web Audio Procedural Chiptune SFX & Visual Particle System [pending]
   8. M7: UI/UX, Scoring, High Score LocalStorage & Mobile Controls [pending]
   9. M8: Final Integration, E2E Test Suite & Adversarial Hardening [pending]
   10. E2E Testing Track: Opaque-box Test Harness & Tiers 1-4 Test Suites [done/ready]
-- **Current phase**: 2 (Iteration Loop M4 Worker)
-- **Current focus**: Milestone 4 Worker (`m4_worker`) implementing Enemy entities, FormationManager, FlightPathManager, Bézier curves, and enemy sprite caching.
+- **Current phase**: 2 (Iteration Loop M4 Verification)
+- **Current focus**: Milestone 4 Verification (m4_reviewer_1, m4_reviewer_2, m4_challenger_1, m4_challenger_2, m4_auditor_1).
 
 ## 🔒 Key Constraints
 - Pure Web Audio API chiptune synthesis (no external audio assets required).
@@ -53,10 +53,11 @@ Develop a fully playable, authentic Galaga arcade web game with Vercel deploymen
 ## Team Roster
 | Agent | Type | Work Item | Status | Conv ID |
 |---|---|---|---|---|
-| m4_explorer_1 | teamwork_preview_explorer | Enemy Formation Specialist | completed | 7e031647-9673-4524-8608-1ac6f9a3b470 |
-| m4_explorer_2 | teamwork_preview_explorer | Flight Path Specialist | completed | 69f84972-34be-4465-af83-f7c38a84d68a |
-| m4_explorer_3 | teamwork_preview_explorer | Enemy Sprite Specialist | completed | 5f876964-dd8e-40e9-95f4-abccd251daf7 |
-| m4_worker | teamwork_preview_worker | M4 Enemy & Flight Path Implementation | in-progress | 059fba60-561d-4baf-a98b-e2a9d04cd4fd |
+| m4_reviewer_1 | teamwork_preview_reviewer | M4 Enemy & Formation Reviewer | in-progress | e4dc776b-a234-44f0-9f3d-8b078b170686 |
+| m4_reviewer_2 | teamwork_preview_reviewer | M4 Flight Paths & Sprite Reviewer | in-progress | cd8b7e04-daad-4c3d-a440-2efd8ee9f979 |
+| m4_challenger_1 | teamwork_preview_challenger | M4 Formation Breathing Challenger | in-progress | e692b423-a465-48eb-9bf4-ea00460e5a62 |
+| m4_challenger_2 | teamwork_preview_challenger | M4 Kinematics & AI Challenger | in-progress | 3f7eee66-012b-430f-ba2f-096fdd9338e4 |
+| m4_auditor_1 | teamwork_preview_auditor | M4 Forensic Auditor | in-progress | f3ae10a2-3ecc-43c1-a1d2-6fecd21058a3 |
 
 ## Active Timers
 - Heartbeat cron: a47fd167-cbab-4c4b-bc2b-cc7faa3d92f7/task-21

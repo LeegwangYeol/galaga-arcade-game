@@ -75,6 +75,7 @@ export class Enemy implements Poolable {
   // Dive Flight & Escort State
   public escortCount: number = 0; // 0, 1, or 2 (used for Boss dive scoring)
   public escortBossId: number | string | null = null;
+  public escortBoss: Enemy | null = null;
   public diveTimer: number = 0;
   public diveSpeed: number = 160; // Pixels per second
   public returnSlotX: number = 0;
@@ -145,6 +146,7 @@ export class Enemy implements Poolable {
     this.animFrame = 0;
     this.escortCount = 0;
     this.escortBossId = null;
+    this.escortBoss = null;
     this.diveTimer = 0;
     this.diveSpeed = 160;
     this.flightPath = null;
@@ -178,6 +180,7 @@ export class Enemy implements Poolable {
     this.animFrame = 0;
     this.escortCount = 0;
     this.escortBossId = null;
+    this.escortBoss = null;
     this.diveTimer = 0;
     this.diveSpeed = 160;
     this.returnSlotX = 0;
@@ -251,6 +254,12 @@ export class Enemy implements Poolable {
       const awardedPoints = this.getScoreValue();
       this.state = EnemyState.EXPLODING;
       this.deathTimer = Enemy.EXPLOSION_DURATION;
+
+      // Decrement diving Boss active escortCount when escort is killed mid-dive
+      if (this.escortBoss && this.escortBoss.active && this.escortBoss.escortCount > 0) {
+        this.escortBoss.escortCount = Math.max(0, this.escortBoss.escortCount - 1);
+      }
+
       this.onExplode?.(this.x, this.y, this.type);
       return { destroyed: true, points: awardedPoints, wasDamaged: true };
     } else {
@@ -344,6 +353,11 @@ export class Enemy implements Poolable {
       this.pathElapsedMs = 0;
       this.state = nextState;
       this.rotation = 0;
+      if (nextState === EnemyState.IN_FORMATION) {
+        this.escortCount = 0;
+        this.escortBossId = null;
+        this.escortBoss = null;
+      }
     }
   }
 
@@ -411,6 +425,9 @@ export class Enemy implements Poolable {
       this.vy = 0;
       this.rotation = 0;
       this.state = EnemyState.IN_FORMATION;
+      this.escortCount = 0;
+      this.escortBossId = null;
+      this.escortBoss = null;
     } else {
       const speed = this.diveSpeed * 0.9;
       this.x += (dx / dist) * speed * dt;

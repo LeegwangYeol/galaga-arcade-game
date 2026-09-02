@@ -126,6 +126,19 @@ describe('Milestone 4: Bézier Splines & Flight Curves (`src/math/Bezier.ts`)', 
       expect(sampleEnd.position.x).toBeCloseTo(100, 4);
       expect(sampleEnd.position.y).toBeCloseTo(100, 4);
     });
+
+    it('clamps negative distance and excessive distance to [0, length] in sampleAtDistance', () => {
+      const curve = new BezierCurve({ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 100 }, { x: 100, y: 100 });
+      const sampleNeg = curve.sampleAtDistance(-100);
+      expect(sampleNeg.distance).toBe(0);
+      expect(sampleNeg.position.x).toBeCloseTo(0, 4);
+      expect(sampleNeg.position.y).toBeCloseTo(0, 4);
+
+      const sampleOverflow = curve.sampleAtDistance(10000);
+      expect(sampleOverflow.distance).toBeCloseTo(curve.length, 4);
+      expect(sampleOverflow.position.x).toBeCloseTo(100, 4);
+      expect(sampleOverflow.position.y).toBeCloseTo(100, 4);
+    });
   });
 
   describe('Quadratic Bézier & Composite Paths', () => {
@@ -135,6 +148,12 @@ describe('Milestone 4: Bézier Splines & Flight Curves (`src/math/Bezier.ts`)', 
       expect(q.evaluate(1)).toEqual({ x: 100, y: 0 });
       expect(q.evaluate(0.5).x).toBeCloseTo(50, 4);
       expect(q.evaluate(0.5).y).toBeCloseTo(50, 4);
+
+      // Quadratic clamping
+      const qNeg = q.sampleAtDistance(-50);
+      expect(qNeg.distance).toBe(0);
+      const qOver = q.sampleAtDistance(99999);
+      expect(qOver.distance).toBeCloseTo(q.length, 4);
     });
 
     it('evaluates CompositeBezierPath across multiple segments with duration gating', () => {
@@ -229,6 +248,45 @@ describe('Milestone 4: Enemy Unit Hierarchy & State Machine (`src/entities/Enemy
     it('awards 1000 pts for Captured Fighter', () => {
       enemy.type = EnemyType.CAPTURED_FIGHTER;
       expect(enemy.getScoreValue()).toBe(1000);
+    });
+
+    it('dynamically tracks escort deaths mid-dive and updates Boss point value accurately', () => {
+      const boss = new Enemy({ id: 1, type: EnemyType.BOSS, x: 104, y: 52 });
+      const escort1 = new Enemy({ id: 2, type: EnemyType.GOEI, x: 88, y: 68 });
+      const escort2 = new Enemy({ id: 3, type: EnemyType.GOEI, x: 120, y: 68 });
+
+      boss.state = EnemyState.DIVING_ESCORT;
+      boss.escortCount = 2;
+
+      escort1.state = EnemyState.DIVING_ESCORT;
+      escort1.escortBossId = boss.id;
+      escort1.escortBoss = boss;
+
+      escort2.state = EnemyState.DIVING_ESCORT;
+      escort2.escortBossId = boss.id;
+      escort2.escortBoss = boss;
+
+      expect(boss.getScoreValue()).toBe(1600);
+
+      // Kill first escort Goei
+      const hitGoei1 = escort1.takeDamage(1);
+      expect(hitGoei1.destroyed).toBe(true);
+      expect(hitGoei1.points).toBe(160);
+      expect(boss.escortCount).toBe(1);
+      expect(boss.getScoreValue()).toBe(800);
+
+      // Kill second escort Goei
+      const hitGoei2 = escort2.takeDamage(1);
+      expect(hitGoei2.destroyed).toBe(true);
+      expect(hitGoei2.points).toBe(160);
+      expect(boss.escortCount).toBe(0);
+      expect(boss.getScoreValue()).toBe(400);
+
+      // Destroy Boss
+      boss.health = 1;
+      const hitBoss = boss.takeDamage(1);
+      expect(hitBoss.destroyed).toBe(true);
+      expect(hitBoss.points).toBe(400);
     });
   });
 
@@ -425,6 +483,37 @@ describe('Milestone 4: Flight Path Manager (`src/systems/FlightPathManager.ts`)'
     );
     expect(paired.leftPath).toBeDefined();
     expect(paired.rightPath).toBeDefined();
+  });
+
+  it('generates synchronized Boss Galaga escort wingman dive path matching Boss trajectory duration', () => {
+    const bossStart = { x: 104, y: 52 };
+    const escortStartL = { x: 88, y: 68 };
+    const escortStartR = { x: 120, y: 68 };
+
+    const bossPath = FlightPathManager.createBossEscortedDivePath(bossStart, 112);
+    const wingmanL = FlightPathManager.createBossEscortWingmanPath(bossStart, escortStartL, 112, true, bossPath);
+    const wingmanR = FlightPathManager.createBossEscortWingmanPath(bossStart, escortStartR, 112, false, bossPath);
+
+    // Exact total duration match
+    expect(wingmanL.totalDurationMs).toBeCloseTo(bossPath.totalDurationMs, 4);
+    expect(wingmanR.totalDurationMs).toBeCloseTo(bossPath.totalDurationMs, 4);
+
+    // Segment 1 duration match
+    expect(wingmanL.segmentDurationsMs[0]).toBeCloseTo(bossPath.segmentDurationsMs[0]!, 4);
+    expect(wingmanR.segmentDurationsMs[0]).toBeCloseTo(bossPath.segmentDurationsMs[0]!, 4);
+
+    // Segment 2 duration match
+    expect(wingmanL.segmentDurationsMs[1]).toBeCloseTo(bossPath.segmentDurationsMs[1]!, 4);
+    expect(wingmanR.segmentDurationsMs[1]).toBeCloseTo(bossPath.segmentDurationsMs[1]!, 4);
+
+    // Test lateral offset during swoop (t = 50% of path)
+    const midTime = bossPath.totalDurationMs * 0.5;
+    const sampleBoss = bossPath.evaluateTime(midTime);
+    const sampleL = wingmanL.evaluateTime(midTime);
+    const sampleR = wingmanR.evaluateTime(midTime);
+
+    expect(sampleL.position.x).toBeLessThan(sampleBoss.position.x);
+    expect(sampleR.position.x).toBeGreaterThan(sampleBoss.position.x);
   });
 
   it('generates smooth return-to-formation splines', () => {

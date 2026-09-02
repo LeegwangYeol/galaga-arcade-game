@@ -409,6 +409,48 @@ export class FlightPathManager {
   }
 
   /**
+   * Generates synchronized Goei escort wingman dive path flanking the Boss Galaga.
+   */
+  public static createBossEscortWingmanPath(
+    bossStart: Point2D,
+    escortStart: Point2D,
+    playerX: number,
+    isLeftWing: boolean,
+    bossPath?: CompositeBezierPath
+  ): CompositeBezierPath {
+    const isLeft = bossStart.x <= 112;
+    const dir = isLeft ? -1 : 1;
+    const offsetX = isLeftWing ? -16 : 16;
+    const offsetY = 12;
+
+    // Segment 1: Peel-off loop matching Boss trajectory shape with lateral wing offset
+    const seg1 = new BezierCurve(
+      { x: escortStart.x, y: escortStart.y },
+      { x: bossStart.x + dir * 25 + offsetX, y: bossStart.y - 30 + offsetY },
+      { x: bossStart.x + dir * 55 + offsetX, y: bossStart.y - 5 + offsetY },
+      { x: bossStart.x + dir * 30 + offsetX, y: bossStart.y + 45 + offsetY }
+    );
+
+    // Segment 2: Deep swoop through player position matching Boss swoop
+    const seg2 = new BezierCurve(
+      seg1.p3,
+      { x: 112 + offsetX, y: 150 + offsetY },
+      { x: playerX + offsetX, y: 230 + offsetY },
+      { x: playerX + dir * 30 + offsetX, y: 310 }
+    );
+
+    // Reference Boss path for exact segment durations to guarantee 100% synchronization
+    const refBoss = bossPath ?? FlightPathManager.createBossEscortedDivePath(bossStart, playerX);
+    const dur1 = refBoss.segmentDurationsMs[0]!;
+    const dur2 = refBoss.segmentDurationsMs[1]!;
+
+    return new CompositeBezierPath(`DIVE_BOSS_WINGMAN_${isLeftWing ? 'L' : 'R'}`, [
+      { curve: seg1, durationMs: dur1 },
+      { curve: seg2, durationMs: dur2 },
+    ]);
+  }
+
+  /**
    * Generates return-to-formation docking path after bottom-screen wrap-around.
    */
   public static createReturnPath(
