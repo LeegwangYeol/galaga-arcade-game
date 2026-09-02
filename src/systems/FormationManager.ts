@@ -11,12 +11,14 @@
 
 import { Enemy, type EnemyBulletRequest } from '../entities/Enemy';
 import { FlightPathManager, type SubWaveType } from './FlightPathManager';
+import { BezierCurve, CompositeBezierPath } from '../math/Bezier';
 import { EnemyType, EnemyState, type FormationSlot, type Point2D } from '../types';
 
 export interface FormationManagerConfig {
   onEnemyFire?: (request: EnemyBulletRequest) => void;
   onEnemyDestroyed?: (enemy: Enemy, points: number) => void;
   onStageClear?: () => void;
+  onTractorBeamRequest?: (boss: Enemy) => void;
 }
 
 export class FormationManager {
@@ -56,12 +58,14 @@ export class FormationManager {
   public onEnemyFire?: (request: EnemyBulletRequest) => void;
   public onEnemyDestroyed?: (enemy: Enemy, points: number) => void;
   public onStageClear?: () => void;
+  public onTractorBeamRequest?: (boss: Enemy) => void;
 
   constructor(config?: FormationManagerConfig) {
     if (config) {
       this.onEnemyFire = config.onEnemyFire;
       this.onEnemyDestroyed = config.onEnemyDestroyed;
       this.onStageClear = config.onStageClear;
+      this.onTractorBeamRequest = config.onTractorBeamRequest;
     }
 
     this.initializeGridSlots();
@@ -332,7 +336,17 @@ export class FormationManager {
   // 5. Dive Attack Scheduler
   // ==========================================================================
 
-  private updateDiveScheduler(dt: number, playerX: number): void {
+  // ==========================================================================
+  // 5. Dive Attack Scheduler & Tractor Beam Launch
+  // ==========================================================================
+
+  public isTractorBeamActive(): boolean {
+    return this.enemies.some(
+      (e) => e.active && e.state === EnemyState.TRACTOR_BEAM_ACTIVE
+    );
+  }
+
+  private updateDiveScheduler(dt: number, playerX: number, playerIsDual: boolean = false): void {
     if (this.isEntryWaveActive) return;
 
     this.diveTimer += dt;
@@ -345,6 +359,8 @@ export class FormationManager {
         e.active &&
         (e.state === EnemyState.DIVING_SOLO ||
           e.state === EnemyState.DIVING_ESCORT ||
+          e.state === EnemyState.TRACTOR_BEAM_ACTIVE ||
+          e.state === EnemyState.CAPTURED_HOSTILE ||
           e.state === EnemyState.RETURNING_TO_FORMATION)
     );
 
@@ -353,15 +369,33 @@ export class FormationManager {
     }
 
     this.diveTimer = 0;
-    this.triggerDiveAttack(playerX);
+    this.triggerDiveAttack(playerX, playerIsDual);
   }
 
-  private triggerDiveAttack(playerX: number): void {
+  private triggerDiveAttack(playerX: number, playerIsDual: boolean = false): void {
     const formationEnemies = this.enemies.filter(
       (e) => e.active && e.state === EnemyState.IN_FORMATION
     );
 
     if (formationEnemies.length === 0) return;
+
+    // Stage 2+ Tractor Beam Dive Chance (against Single Fighter only, max 1 active beam)
+    const shouldAttemptTractor =
+      this.stage >= 2 &&
+      !playerIsDual &&
+      !this.isTractorBeamActive() &&
+      Math.random() < 0.35;
+
+    if (shouldAttemptTractor) {
+      const eligibleBosses = formationEnemies.filter(
+        (e) => e.type === EnemyType.BOSS && !e.hasCapturedFighter && e.health >= 1
+      );
+      if (eligibleBosses.length > 0) {
+        const boss = eligibleBosses[Math.floor(Math.random() * eligibleBosses.length)]!;
+        this.launchTractorBeamDive(boss, playerX);
+        return;
+      }
+    }
 
     const roll = Math.random();
 
@@ -403,13 +437,16 @@ export class FormationManager {
     this.peelOffSolo(fallback, playerX);
   }
 
-  private peelOffSolo(enemy: Enemy, playerX: number): void {
+  public peelOffSolo(enemy: Enemy, playerX: number): void {
     const isLeft = enemy.x <= FormationManager.GRID_CENTER_X;
     const path = FlightPathManager.createSoloDivePath({ x: enemy.x, y: enemy.y }, playerX, isLeft);
 
     enemy.flightPath = path;
     enemy.pathElapsedMs = 0;
-    enemy.state = EnemyState.DIVING_SOLO;
+    enemy.state =
+      enemy.type === EnemyType.CAPTURED_FIGHTER && !enemy.escortBoss
+        ? EnemyState.CAPTURED_HOSTILE
+        : EnemyState.DIVING_SOLO;
     enemy.escortCount = 0;
     enemy.escortBossId = null;
     enemy.escortBoss = null;
@@ -417,6 +454,33 @@ export class FormationManager {
     const returnSlot = this.getSlotPosition(enemy.row, enemy.col, this.elapsedTime + 4.0);
     enemy.returnSlotX = returnSlot.x;
     enemy.returnSlotY = returnSlot.y;
+  }
+
+  public launchTractorBeamDive(boss: Enemy, playerX: number): void {
+    const isLeft = boss.x <= FormationManager.GRID_CENTER_X;
+    const haltX = Math.max(48, Math.min(176, playerX));
+    const haltY = 100;
+
+    const p0 = { x: boss.x, y: boss.y };
+    const p1 = { x: isLeft ? boss.x - 20 : boss.x + 20, y: boss.y + 20 };
+    const p2 = { x: haltX, y: 60 };
+    const p3 = { x: haltX, y: haltY };
+
+    const curve = new BezierCurve(p0, p1, p2, p3);
+    const path = new CompositeBezierPath('TRACTOR_DIVE', [
+      { curve, durationMs: 1000 },
+    ]);
+
+    boss.flightPath = path;
+    boss.pathElapsedMs = 0;
+    boss.state = EnemyState.DIVING_SOLO;
+    boss.escortCount = 0;
+    boss.escortBossId = null;
+    boss.escortBoss = null;
+
+    const returnSlot = this.getSlotPosition(boss.row, boss.col, this.elapsedTime + 6.0);
+    boss.returnSlotX = returnSlot.x;
+    boss.returnSlotY = returnSlot.y;
   }
 
   private peelOffPairedGoeis(leftGoei: Enemy, rightGoei: Enemy, playerX: number): void {
@@ -491,14 +555,19 @@ export class FormationManager {
   // 6. Master Update & Render Pipeline
   // ==========================================================================
 
-  public update(dt: number, playerX: number = 112, playerY: number = 250): void {
+  public update(
+    dt: number,
+    playerX: number = 112,
+    playerY: number = 250,
+    playerIsDual: boolean = false
+  ): void {
     this.elapsedTime += dt;
 
     // 1. Update Sub-Wave Entry Phase
     this.updateEntryWaves(dt);
 
     // 2. Update Dive Attack Scheduler
-    this.updateDiveScheduler(dt, playerX);
+    this.updateDiveScheduler(dt, playerX, playerIsDual);
 
     // 3. Update Individual Enemy Positions & States
     let livingCount = 0;
@@ -519,10 +588,26 @@ export class FormationManager {
       // Update enemy internal state
       enemy.update(dt, playerX, playerY);
 
+      // Check if Boss has reached tractor beam altitude during tractor dive
+      if (
+        enemy.type === EnemyType.BOSS &&
+        enemy.state === EnemyState.DIVING_SOLO &&
+        enemy.flightPath === null &&
+        enemy.y >= 95 &&
+        enemy.y <= 105
+      ) {
+        enemy.state = EnemyState.TRACTOR_BEAM_ACTIVE;
+        enemy.vx = 0;
+        enemy.vy = 0;
+        enemy.rotation = 0;
+        this.onTractorBeamRequest?.(enemy);
+      }
+
       // Periodically attempt firing aimed bullet if diving
       if (
         enemy.state === EnemyState.DIVING_SOLO ||
-        enemy.state === EnemyState.DIVING_ESCORT
+        enemy.state === EnemyState.DIVING_ESCORT ||
+        enemy.state === EnemyState.CAPTURED_HOSTILE
       ) {
         if (enemy.y > 60 && enemy.y < 220) {
           enemy.attemptFire(playerX, playerY, 180 + this.stage * 15);

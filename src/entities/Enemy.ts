@@ -76,6 +76,8 @@ export class Enemy implements Poolable {
   public escortCount: number = 0; // 0, 1, or 2 (used for Boss dive scoring)
   public escortBossId: number | string | null = null;
   public escortBoss: Enemy | null = null;
+  public hasCapturedFighter: boolean = false;
+  public capturedFighterEnemy: Enemy | null = null;
   public diveTimer: number = 0;
   public diveSpeed: number = 160; // Pixels per second
   public returnSlotX: number = 0;
@@ -147,6 +149,8 @@ export class Enemy implements Poolable {
     this.escortCount = 0;
     this.escortBossId = null;
     this.escortBoss = null;
+    this.hasCapturedFighter = false;
+    this.capturedFighterEnemy = null;
     this.diveTimer = 0;
     this.diveSpeed = 160;
     this.flightPath = null;
@@ -181,6 +185,8 @@ export class Enemy implements Poolable {
     this.escortCount = 0;
     this.escortBossId = null;
     this.escortBoss = null;
+    this.hasCapturedFighter = false;
+    this.capturedFighterEnemy = null;
     this.diveTimer = 0;
     this.diveSpeed = 160;
     this.returnSlotX = 0;
@@ -295,6 +301,37 @@ export class Enemy implements Poolable {
     }
 
     // 4. State Dispatch
+    if (
+      this.type === EnemyType.CAPTURED_FIGHTER &&
+      this.escortBoss &&
+      this.escortBoss.active &&
+      this.state !== EnemyState.CAPTURED_HOSTILE &&
+      this.state !== EnemyState.EXPLODING
+    ) {
+      if (this.escortBoss.state === EnemyState.IN_FORMATION) {
+        this.x = this.escortBoss.x;
+        this.y = this.escortBoss.y - 16;
+        this.rotation = 0;
+        this.state = EnemyState.IN_FORMATION;
+      } else if (
+        this.escortBoss.state === EnemyState.DIVING_ESCORT ||
+        this.escortBoss.state === EnemyState.DIVING_SOLO ||
+        this.escortBoss.state === EnemyState.TRACTOR_BEAM_ACTIVE
+      ) {
+        const angle = this.escortBoss.rotation;
+        this.x = this.escortBoss.x - 16 * Math.sin(angle);
+        this.y = this.escortBoss.y - 16 * Math.cos(angle);
+        this.rotation = this.escortBoss.rotation;
+        this.state = EnemyState.DIVING_ESCORT;
+      } else if (this.escortBoss.state === EnemyState.RETURNING_TO_FORMATION) {
+        this.x = this.escortBoss.x;
+        this.y = this.escortBoss.y - 16;
+        this.rotation = this.escortBoss.rotation;
+        this.state = EnemyState.RETURNING_TO_FORMATION;
+      }
+      return;
+    }
+
     switch (this.state) {
       case EnemyState.IN_FORMATION:
         // Position is driven externally by FormationManager slot coordinates
@@ -307,6 +344,7 @@ export class Enemy implements Poolable {
 
       case EnemyState.DIVING_SOLO:
       case EnemyState.DIVING_ESCORT:
+      case EnemyState.CAPTURED_HOSTILE:
         this.updateDiving(dt, playerX, playerY);
         break;
 

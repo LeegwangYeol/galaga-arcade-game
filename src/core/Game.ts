@@ -14,8 +14,10 @@ import { InputHandler } from '../ui/InputHandler';
 import { Player } from '../entities/Player';
 import { BulletManager } from '../entities/Bullet';
 import { FormationManager } from '../systems/FormationManager';
+import { TractorBeam } from '../entities/TractorBeam';
+import { Enemy } from '../entities/Enemy';
 import { SpriteRenderer } from '../renderer/SpriteRenderer';
-import { EnemyState } from '../types';
+import { EnemyType, EnemyState } from '../types';
 import type { GameState, IGameEngine, Rect, VirtualResolution } from '../types';
 
 function checkAABB(a: Rect, b: Rect): boolean {
@@ -51,6 +53,7 @@ export class Game implements IGameEngine {
   public player: Player;
   public bulletManager: BulletManager;
   public formationManager: FormationManager;
+  public tractorBeam: TractorBeam;
 
   // Core Game State
   public state: GameState = 'BOOT';
@@ -208,6 +211,18 @@ export class Game implements IGameEngine {
       this.setState('GAME_OVER');
     };
 
+    this.player.onCapturedComplete = (targetX, targetY) => {
+      this.handlePlayerCaptured(targetX, targetY);
+    };
+
+    this.player.onDocked = () => {
+      this.score += 1000;
+      this.saveHighScore();
+    };
+
+    // 6b. Initialize TractorBeam Subsystem
+    this.tractorBeam = new TractorBeam();
+
     // 7. Initialize FormationManager Subsystem
     this.formationManager = new FormationManager({
       onEnemyFire: (req) => {
@@ -225,6 +240,9 @@ export class Game implements IGameEngine {
       },
       onStageClear: () => {
         this.setState('STAGE_CLEAR');
+      },
+      onTractorBeamRequest: (boss) => {
+        this.tractorBeam.activate(boss);
       },
     });
 
@@ -310,6 +328,7 @@ export class Game implements IGameEngine {
     this.inputHandler.destroy();
     this.bulletManager.clear();
     this.formationManager.reset();
+    this.tractorBeam.reset();
     this.isInitialized = false;
   }
 
@@ -325,9 +344,11 @@ export class Game implements IGameEngine {
       case 'TITLE':
         this.starfield.setSpeedState('NORMAL');
         this.formationManager.reset();
+        this.tractorBeam.reset();
         break;
       case 'STAGE_INTRO':
         this.starfield.setSpeedState('WARP');
+        this.tractorBeam.reset();
         break;
       case 'PLAYING':
       case 'CHALLENGING_STAGE':
@@ -335,9 +356,11 @@ export class Game implements IGameEngine {
         break;
       case 'STAGE_CLEAR':
         this.starfield.setSpeedState('NORMAL');
+        this.tractorBeam.reset();
         break;
       case 'GAME_OVER':
         this.starfield.setSpeedState('NORMAL');
+        this.tractorBeam.reset();
         this.saveHighScore();
         break;
       case 'PAUSED':
@@ -353,6 +376,7 @@ export class Game implements IGameEngine {
     this.bulletManager.clear();
     this.player.reset(112, Player.BASELINE_Y, 3);
     this.formationManager.spawnStage(1);
+    this.tractorBeam.reset();
     this.setState('STAGE_INTRO');
   }
 
@@ -442,10 +466,34 @@ export class Game implements IGameEngine {
   private updatePlaying(dt: number): void {
     const input = this.inputHandler.getState();
     this.player.update(dt, input);
-    this.formationManager.update(dt, this.player.x, this.player.y);
+    this.formationManager.update(dt, this.player.x, this.player.y, this.player.isDual);
+    this.tractorBeam.update(dt);
 
     // Perform Collision Detection & Resolution
     this.resolveCollisions();
+  }
+
+  public handlePlayerCaptured(targetX: number, targetY: number): void {
+    const boss = this.tractorBeam.getBoss();
+    if (boss && boss.active) {
+      const escort = new Enemy({
+        id: `captured_${Date.now()}`,
+        type: EnemyType.CAPTURED_FIGHTER,
+        x: targetX,
+        y: targetY,
+      });
+      escort.state = EnemyState.IN_FORMATION;
+      escort.escortBoss = boss;
+      escort.escortBossId = boss.id;
+      boss.hasCapturedFighter = true;
+      boss.capturedFighterEnemy = escort;
+      boss.escortCount = 1;
+      this.formationManager.enemies.push(escort);
+      this.tractorBeam.deactivate(true);
+      boss.state = EnemyState.RETURNING_TO_FORMATION;
+    } else {
+      this.tractorBeam.deactivate(true);
+    }
   }
 
   private updateChallengingStage(dt: number): void {
@@ -458,6 +506,7 @@ export class Game implements IGameEngine {
       this.stage += 1;
       this.bulletManager.clear();
       this.formationManager.spawnStage(this.stage);
+      this.tractorBeam.reset();
       this.setState('STAGE_INTRO');
     }
   }
@@ -471,6 +520,7 @@ export class Game implements IGameEngine {
       ) {
         this.bulletManager.clear();
         this.formationManager.reset();
+        this.tractorBeam.reset();
         this.setState('TITLE');
       }
     }
@@ -480,10 +530,10 @@ export class Game implements IGameEngine {
   // Collision Detection & Resolution Engine
   // ==========================================================================
 
-  private resolveCollisions(): void {
+  public resolveCollisions(): void {
     const livingEnemies = this.formationManager.getLivingEnemies();
 
-    // 1. Player Missiles vs Living Enemies
+    // 1. Player Missiles vs Living Enemies (with Rescue & Turncoat Handlers)
     this.bulletManager.forEachActivePlayerBullet((bullet) => {
       if (!bullet.active) return;
 
@@ -498,22 +548,112 @@ export class Game implements IGameEngine {
 
         if (checkAABB(bulletBox, enemyBox)) {
           this.bulletManager.recycle(bullet);
-          const damageResult = enemy.takeDamage(1);
 
-          if (damageResult.destroyed) {
-            this.score += damageResult.points;
-            this.saveHighScore();
+          // Case A: Shooting Boss Galaga
+          if (enemy.type === EnemyType.BOSS) {
+            const isDiving =
+              enemy.state === EnemyState.DIVING_SOLO ||
+              enemy.state === EnemyState.DIVING_ESCORT ||
+              enemy.state === EnemyState.TRACTOR_BEAM_ACTIVE;
+
+            const damageResult = enemy.takeDamage(1);
+
+            if (damageResult.destroyed) {
+              // Check for attached Captured Fighter Escort
+              if (enemy.hasCapturedFighter && enemy.capturedFighterEnemy) {
+                const capturedFighter = enemy.capturedFighterEnemy;
+
+                if (isDiving) {
+                  // SUCCESSFUL RESCUE FLOW
+                  capturedFighter.active = false;
+                  capturedFighter.state = EnemyState.INACTIVE;
+                  this.player.startRescue(enemy.x, enemy.y);
+                  this.score += 1000; // Rescue bonus
+                } else {
+                  // TURNCOAT DIVERGENCE FLOW (Destroyed in formation)
+                  capturedFighter.state = EnemyState.CAPTURED_HOSTILE;
+                  capturedFighter.escortBoss = null;
+                  capturedFighter.escortBossId = null;
+                  this.formationManager.peelOffSolo(capturedFighter, this.player.x);
+                }
+
+                enemy.hasCapturedFighter = false;
+                enemy.capturedFighterEnemy = null;
+              }
+
+              // If Boss was emitting tractor beam, collapse beam immediately
+              if (this.tractorBeam.isActive() && this.tractorBeam.getBoss() === enemy) {
+                this.tractorBeam.deactivate(true);
+              }
+
+              this.score += damageResult.points;
+              this.saveHighScore();
+            }
           }
+          // Case B: Shooting Captured Fighter Directly (Accidental Destruction)
+          else if (
+            enemy.type === EnemyType.CAPTURED_FIGHTER ||
+            enemy.state === EnemyState.CAPTURED_HOSTILE
+          ) {
+            const damageResult = enemy.takeDamage(1);
+            if (damageResult.destroyed) {
+              this.score += damageResult.points || 1000;
+              this.saveHighScore();
+
+              if (enemy.escortBoss) {
+                enemy.escortBoss.hasCapturedFighter = false;
+                enemy.escortBoss.capturedFighterEnemy = null;
+                enemy.escortBoss.escortCount = Math.max(0, enemy.escortBoss.escortCount - 1);
+              }
+            }
+          }
+          // Case C: Standard Enemies (Zako, Goei, Transform)
+          else {
+            const damageResult = enemy.takeDamage(1);
+            if (damageResult.destroyed) {
+              this.score += damageResult.points;
+              this.saveHighScore();
+            }
+          }
+
           break; // One bullet hits one enemy
         }
       }
     });
 
-    // 2. Enemy Bullets vs Player Ship
+    // 2. Tractor Beam Cone vs Player Ship (Capture Trigger)
+    if (this.tractorBeam.isActive() && this.tractorBeam.canCapture()) {
+      const isPlayerVulnerable =
+        !this.player.isInvulnerable() &&
+        (this.player.state === 'normal' || this.player.state === 'ALIVE') &&
+        !this.player.isDual;
+
+      if (isPlayerVulnerable) {
+        const playerBox = this.player.getHitbox();
+        const inBeam =
+          this.tractorBeam.containsPoint(this.player.x, this.player.y) ||
+          this.tractorBeam.intersectsAABB(playerBox);
+
+        if (inBeam) {
+          const boss = this.tractorBeam.getBoss();
+          if (boss) {
+            this.tractorBeam.startCapture(this.player);
+            this.player.startCapture(boss.x, boss.y);
+          }
+        }
+      }
+    }
+
+    // 3. Enemy Bullets vs Player Ship
     const s = this.player.state;
     const isPlayerVulnerable =
       !this.player.isInvulnerable() &&
-      (s === 'normal' || s === 'ALIVE' || s === 'dual' || s === 'DUAL' || s === 'docking' || s === 'DOCKING');
+      (s === 'normal' ||
+        s === 'ALIVE' ||
+        s === 'dual' ||
+        s === 'DUAL' ||
+        s === 'docking' ||
+        s === 'DOCKING');
 
     if (isPlayerVulnerable) {
       this.bulletManager.forEachActiveEnemyBullet((bullet) => {
@@ -529,7 +669,7 @@ export class Game implements IGameEngine {
       });
     }
 
-    // 3. Enemy Craft Collisions vs Player Ship (Kamikaze Dive Impact)
+    // 4. Enemy Craft Collisions vs Player Ship (Kamikaze Dive Impact)
     if (isPlayerVulnerable) {
       for (const enemy of livingEnemies) {
         if (!enemy.active || enemy.state === EnemyState.EXPLODING || enemy.state === EnemyState.INACTIVE) {
@@ -722,13 +862,16 @@ export class Game implements IGameEngine {
     // 1. Render Formation Grid & Diving Enemies
     this.formationManager.render(ctx);
 
-    // 2. Render Active Projectiles
+    // 2. Render Tractor Beam Energy Cone (underneath ships and bullets)
+    this.tractorBeam.render(ctx);
+
+    // 3. Render Active Projectiles
     this.bulletManager.render(ctx);
 
-    // 3. Render Player Ship
+    // 4. Render Player Ship & Rescued Docking Ship
     this.player.render(ctx);
 
-    // 4. Challenging Stage Overlay banner if applicable
+    // 5. Challenging Stage Overlay banner if applicable
     if (this.state === 'CHALLENGING_STAGE') {
       ctx.save();
       ctx.font = '8px monospace';
@@ -868,6 +1011,10 @@ export class Game implements IGameEngine {
 
   public getFormationManager(): FormationManager {
     return this.formationManager;
+  }
+
+  public getTractorBeam(): TractorBeam {
+    return this.tractorBeam;
   }
 
   public getCanvas(): HTMLCanvasElement {

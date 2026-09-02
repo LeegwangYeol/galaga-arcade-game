@@ -107,6 +107,7 @@ export class Player {
   public onExplode?: (x: number, y: number, isDualPartial: boolean) => void;
   public onDocked?: () => void;
   public onGameOver?: () => void;
+  public onCapturedComplete?: (x: number, y: number) => void;
 
   constructor(config?: PlayerConfig) {
     this.x = config?.x ?? 112;
@@ -340,8 +341,8 @@ export class Player {
 
   private updateCapturing(dt: number): void {
     this.captureTimer += dt;
-    // Rotate ship at 720 degrees/sec (2 rev/sec)
-    this.captureAngle += Math.PI * 4 * dt;
+    // Rotate ship at 4.0 rot/s = 8*PI rad/s (1440 deg/s)
+    this.captureAngle += Math.PI * 8 * dt;
 
     // Ascend along beam towards Boss Galaga
     const progress = Math.min(1.0, this.captureTimer / 2.5);
@@ -351,6 +352,7 @@ export class Player {
     if (progress >= 1.0) {
       this._state = 'captured';
       this.lives -= 1;
+      this.onCapturedComplete?.(this.captureTarget.x, this.captureTarget.y);
       if (this.lives > 0) {
         this.respawn();
       } else {
