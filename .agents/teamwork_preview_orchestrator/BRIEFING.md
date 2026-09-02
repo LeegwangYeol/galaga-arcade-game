@@ -1,4 +1,4 @@
-# BRIEFING — 2026-09-02T13:49:25Z
+# BRIEFING — 2026-09-02T13:54:35Z
 
 ## Mission
 Develop a fully playable, authentic Galaga arcade web game with Vercel deployment, Git/GitHub integration, high-fidelity audio/visuals, and 100% test verification using a 30+ agent swarm.
@@ -27,11 +27,11 @@ Develop a fully playable, authentic Galaga arcade web game with Vercel deploymen
   5. M4: Enemy Formation, Bézier Flight Paths & AI Diving [done]
   6. M5: Boss Galaga Tractor Beam & Capture/Rescue Mechanics [done]
   7. M6: Web Audio Procedural Chiptune SFX & Visual Particle System [done]
-  8. M7: UI/UX, Scoring, High Score LocalStorage & Mobile Controls [in-progress - worker implementing]
+  8. M7: UI/UX, Scoring, High Score LocalStorage & Mobile Controls [in-progress - verification swarm active]
   9. M8: Final Integration, E2E Test Suite & Adversarial Hardening [pending]
   10. E2E Testing Track: Opaque-box Test Harness & Tiers 1-4 Test Suites [done/ready]
-- **Current phase**: 2 (Iteration Loop M7 Worker)
-- **Current focus**: Milestone 7 Worker (`m7_worker`) implementing HUD, bitmap font atlas, ScoreManager with LocalStorage, game screens, and mobile touch UX.
+- **Current phase**: 2 (Iteration Loop M7 Verification)
+- **Current focus**: Milestone 7 Verification (m7_reviewer_1, m7_reviewer_2, m7_challenger_1, m7_challenger_2, m7_auditor_1).
 
 ## 🔒 Key Constraints
 - Pure Web Audio API chiptune synthesis (no external audio assets required).
@@ -53,10 +53,11 @@ Develop a fully playable, authentic Galaga arcade web game with Vercel deploymen
 ## Team Roster
 | Agent | Type | Work Item | Status | Conv ID |
 |---|---|---|---|---|
-| m7_explorer_1 | teamwork_preview_explorer | HUD and Badges Specialist | completed | 9549974b-45ac-45c2-8855-9773e3614ff4 |
-| m7_explorer_2 | teamwork_preview_explorer | Score & Stats Specialist | completed | fe16bcf6-a9da-4017-a439-c67233ea1ede |
-| m7_explorer_3 | teamwork_preview_explorer | Screens & Touch UX Specialist | completed | 9167761a-d123-4457-bca1-22baf87f1127 |
-| m7_worker | teamwork_preview_worker | M7 UI, HUD & Scoring Implementation | in-progress | 289fb80a-ad8f-4dbc-9f4c-0b3c0ed22ab7 |
+| m7_reviewer_1 | teamwork_preview_reviewer | M7 Score Reviewer | in-progress | f13ced66-711f-4a73-9483-63b65c2185af |
+| m7_reviewer_2 | teamwork_preview_reviewer | M7 HUD and UX Reviewer | in-progress | f502dc87-8e05-4890-9f20-e88a176b75f3 |
+| m7_challenger_1 | teamwork_preview_challenger | M7 Score Challenger | in-progress | 4e81f94d-d13c-47a0-9118-ce998f8b6ddb |
+| m7_challenger_2 | teamwork_preview_challenger | M7 UX Challenger | in-progress | 3377c9a7-d00b-4e66-b428-8ee9c829305a |
+| m7_auditor_1 | teamwork_preview_auditor | M7 Forensic Auditor | in-progress | e4f362b0-bdfd-4b64-bd15-2f56e6ae4aa6 |
 
 ## Active Timers
 - Heartbeat cron: a47fd167-cbab-4c4b-bc2b-cc7faa3d92f7/task-21

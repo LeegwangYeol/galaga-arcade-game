@@ -249,6 +249,18 @@ describe('Milestone 7: HUD, Stage Badges, Screens & ScoreManager Test Suite', ()
       const negative = HUD.decomposeStage(-10);
       expect(negative.stage).toBe(1);
 
+      const nan = HUD.decomposeStage(NaN);
+      expect(nan.stage).toBe(1);
+      expect(nan.badges).toEqual([BadgeType.FLAG_1]);
+
+      const inf = HUD.decomposeStage(Infinity);
+      expect(inf.stage).toBe(1);
+      expect(inf.badges).toEqual([BadgeType.FLAG_1]);
+
+      const negInf = HUD.decomposeStage(-Infinity);
+      expect(negInf.stage).toBe(1);
+      expect(negInf.badges).toEqual([BadgeType.FLAG_1]);
+
       const float = HUD.decomposeStage(7.9);
       expect(float.stage).toBe(7);
       expect(float.badges).toEqual([BadgeType.FLAG_5, BadgeType.FLAG_1, BadgeType.FLAG_1]);

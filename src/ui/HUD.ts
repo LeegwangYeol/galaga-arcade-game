@@ -492,7 +492,7 @@ export class HUD {
   // ==========================================================================
 
   public static decomposeStage(stage: number): BadgeDecomposition {
-    const safeStage = Math.max(1, Math.floor(stage));
+    const safeStage = Number.isFinite(stage) && stage >= 1 ? Math.floor(stage) : 1;
     let rem = safeStage;
     const badges: BadgeType[] = [];
 
