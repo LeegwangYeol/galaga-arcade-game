@@ -158,6 +158,19 @@ export class Player {
   }
 
   public get canFire(): boolean {
+    const s = this._state;
+    const isControllable =
+      s === 'normal' ||
+      s === 'ALIVE' ||
+      s === 'dual' ||
+      s === 'DUAL' ||
+      s === 'respawning' ||
+      s === 'RESPAWNING';
+
+    if (!isControllable) {
+      return false;
+    }
+
     const isDual = this.isDual;
     const maxMissiles = isDual ? 4 : 2;
     if (isDual) {
@@ -363,19 +376,12 @@ export class Player {
   // ==========================================================================
 
   public attemptFire(): boolean {
-    if (this.fireCooldownTimer > 0) {
+    if (!this.canFire) {
       return false;
     }
 
     const isDual = this.isDual;
-    const maxMissiles = isDual ? 4 : 2;
-
     if (isDual) {
-      // Dual mode requires capacity for 2 simultaneous bullets
-      if (this.activeMissileCount > maxMissiles - 2) {
-        return false;
-      }
-
       this.fireCooldownTimer = Player.FIRE_COOLDOWN;
       const spawns: BulletSpawnRequest[] = [
         { x: this.x - 8, y: this.y - 8, vx: 0, vy: -480 },
@@ -384,11 +390,6 @@ export class Player {
       this.onFire?.(spawns);
       return true;
     } else {
-      // Single mode
-      if (this.activeMissileCount >= maxMissiles) {
-        return false;
-      }
-
       this.fireCooldownTimer = Player.FIRE_COOLDOWN;
       const spawns: BulletSpawnRequest[] = [
         { x: this.x, y: this.y - 8, vx: 0, vy: -480 },

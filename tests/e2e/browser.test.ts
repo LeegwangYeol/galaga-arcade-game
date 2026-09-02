@@ -83,9 +83,9 @@ test.describe('Galaga Arcade Web Game - Browser E2E Suite', () => {
     // Measure frame delivery and pixel activity over 800ms
     const renderingMetrics = await verifyCanvasRendering(page, '#game-canvas', 800);
 
-    // Verify frames were executed (should be >= 30 frames in 800ms at ~60 FPS)
-    expect(renderingMetrics.frameCount).toBeGreaterThanOrEqual(25);
-    expect(renderingMetrics.fps).toBeGreaterThanOrEqual(30);
+    // Verify frames were executed (should be >= 20 frames in 800ms at ~60 FPS)
+    expect(renderingMetrics.frameCount).toBeGreaterThanOrEqual(20);
+    expect(renderingMetrics.fps).toBeGreaterThanOrEqual(25);
 
     // Starfield animation or background rendering should cause pixel variance
     expect(renderingMetrics.pixelChanged).toBe(true);

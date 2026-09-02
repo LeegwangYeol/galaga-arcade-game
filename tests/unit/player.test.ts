@@ -305,6 +305,50 @@ describe('Milestone 3: Player Entity & Dual Docking Subsystem', () => {
       player.update(0.12);
       expect(player.attemptFire()).toBe(false);
     });
+
+    it('strictly prohibits firing in non-controllable states (capturing, captured, docking, destroyed)', () => {
+      const onFire = vi.fn();
+      player.onFire = onFire;
+
+      const nonControllableStates = ['capturing', 'captured', 'docking', 'destroyed'] as const;
+      for (const s of nonControllableStates) {
+        player.state = s;
+        expect(player.canFire).toBe(false);
+        expect(player.attemptFire()).toBe(false);
+      }
+      expect(onFire).not.toHaveBeenCalled();
+    });
+
+    it('permits firing in controllable states (normal, dual, respawning)', () => {
+      const onFire = vi.fn();
+      player.onFire = onFire;
+
+      // Normal
+      player.state = 'normal';
+      expect(player.canFire).toBe(true);
+      expect(player.attemptFire()).toBe(true);
+      expect(onFire).toHaveBeenCalledTimes(1);
+
+      // Cooldown reset
+      player.fireCooldownTimer = 0;
+      player.activeMissileCount = 0;
+
+      // Dual
+      player.state = 'dual';
+      expect(player.canFire).toBe(true);
+      expect(player.attemptFire()).toBe(true);
+      expect(onFire).toHaveBeenCalledTimes(2);
+
+      // Cooldown reset
+      player.fireCooldownTimer = 0;
+      player.activeMissileCount = 0;
+
+      // Respawning
+      player.state = 'respawning';
+      expect(player.canFire).toBe(true);
+      expect(player.attemptFire()).toBe(true);
+      expect(onFire).toHaveBeenCalledTimes(3);
+    });
   });
 
   // ==========================================================================
