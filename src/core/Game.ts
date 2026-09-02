@@ -1,15 +1,18 @@
 /**
  * Galaga Arcade Web Game — Master Game Coordinator
  * 
- * Integrates ScreenManager, GameLoop, Starfield, and InputHandler.
- * Implements deterministic game state machine, crisp double-buffered rendering pipeline,
- * and persistent high score management.
+ * Integrates ScreenManager, GameLoop, Starfield, InputHandler, Player, BulletManager,
+ * and SpriteRenderer. Implements deterministic game state machine, crisp double-buffered
+ * rendering pipeline, and persistent high score management.
  */
 
 import { ScreenManager } from './ScreenManager';
 import { GameLoop } from './GameLoop';
 import { Starfield } from '../systems/Starfield';
 import { InputHandler } from '../ui/InputHandler';
+import { Player } from '../entities/Player';
+import { BulletManager } from '../entities/Bullet';
+import { SpriteRenderer } from '../renderer/SpriteRenderer';
 import type { GameState, IGameEngine, VirtualResolution } from '../types';
 
 export class Game implements IGameEngine {
@@ -33,6 +36,8 @@ export class Game implements IGameEngine {
   public gameLoop: GameLoop;
   public starfield: Starfield;
   public inputHandler: InputHandler;
+  public player: Player;
+  public bulletManager: BulletManager;
 
   // Core Game State
   public state: GameState = 'BOOT';
@@ -147,15 +152,50 @@ export class Game implements IGameEngine {
       this.ctx.imageSmoothingEnabled = false;
     }
 
-    // 3. Load High Score from LocalStorage
+    // 3. Initialize Procedural SpriteRenderer Pre-Baking
+    SpriteRenderer.initialize();
+
+    // 4. Load High Score from LocalStorage
     this.loadHighScore();
 
-    // 4. Initialize Core Subsystems
+    // 5. Initialize Core Subsystems
     this.screenManager = new ScreenManager(this.canvas, Game.VIRTUAL_WIDTH, Game.VIRTUAL_HEIGHT);
     this.starfield = new Starfield(Game.VIRTUAL_WIDTH, Game.VIRTUAL_HEIGHT);
     this.inputHandler = new InputHandler(this.canvas, this.screenManager, () => this.unlockAudio());
 
-    // 5. Initialize GameLoop
+    // 6. Initialize Player & Bullet Subsystems
+    this.bulletManager = new BulletManager({
+      onBulletRecycle: () => {
+        if (this.player) {
+          this.player.activeMissileCount = this.bulletManager.getPlayerBulletCount();
+        }
+      },
+    });
+
+    this.player = new Player({
+      x: 112,
+      y: Player.BASELINE_Y,
+      lives: this.lives,
+    });
+
+    this.player.onFire = (spawns) => {
+      for (const s of spawns) {
+        this.bulletManager.firePlayerBullet(
+          s.x,
+          s.y,
+          this.player.isDual,
+          Math.abs(s.vy)
+        );
+      }
+      this.player.activeMissileCount = this.bulletManager.getPlayerBulletCount();
+    };
+
+    this.player.onGameOver = () => {
+      this.lives = 0;
+      this.setState('GAME_OVER');
+    };
+
+    // 7. Initialize GameLoop
     this.gameLoop = new GameLoop({
       onUpdate: (dt: number) => this.update(dt),
       onRender: (_alpha: number) => this.render(this.ctx),
@@ -164,7 +204,7 @@ export class Game implements IGameEngine {
 
     this.isInitialized = true;
 
-    // 6. Transition to TITLE attract screen
+    // 8. Transition to TITLE attract screen
     this.setState('TITLE');
   }
 
@@ -235,6 +275,7 @@ export class Game implements IGameEngine {
     this.stop();
     this.screenManager.destroy();
     this.inputHandler.destroy();
+    this.bulletManager.clear();
     this.isInitialized = false;
   }
 
@@ -274,6 +315,8 @@ export class Game implements IGameEngine {
     this.stage = 1;
     this.score = 0;
     this.lives = 3;
+    this.bulletManager.clear();
+    this.player.reset(112, Player.BASELINE_Y, 3);
     this.setState('STAGE_INTRO');
   }
 
@@ -300,6 +343,14 @@ export class Game implements IGameEngine {
 
     // Update background starfield
     this.starfield.update(dt);
+
+    // Update projectiles
+    this.bulletManager.update(dt);
+    this.player.activeMissileCount = this.bulletManager.getPlayerBulletCount();
+
+    // Sync lives & score with player
+    this.lives = this.player.lives;
+    this.player.score = this.score;
 
     // State machine updates
     switch (this.state) {
@@ -340,6 +391,7 @@ export class Game implements IGameEngine {
   private updateStageIntro(_dt: number): void {
     // 2.2 seconds intro animation before battle begins
     if (this.stateTimer >= 2.2) {
+      this.player.respawn();
       if (this.isChallengingStage(this.stage)) {
         this.setState('CHALLENGING_STAGE');
       } else {
@@ -348,24 +400,13 @@ export class Game implements IGameEngine {
     }
   }
 
-  private updatePlaying(_dt: number): void {
-    // Verified in Milestone 2 in preparation for Player ship entity in Milestone 3
+  private updatePlaying(dt: number): void {
     const input = this.inputHandler.getState();
-
-    if (this.inputHandler.consumeAction('fire')) {
-      // Missile fired (Milestone 3 hook)
-    }
-
-    if (input.moveLeft) {
-      // Ship moves left
-    }
-    if (input.moveRight) {
-      // Ship moves right
-    }
+    this.player.update(dt, input);
   }
 
-  private updateChallengingStage(_dt: number): void {
-    this.updatePlaying(_dt);
+  private updateChallengingStage(dt: number): void {
+    this.updatePlaying(dt);
   }
 
   private updateStageClear(_dt: number): void {
@@ -383,6 +424,7 @@ export class Game implements IGameEngine {
         this.inputHandler.consumeAction('restart') ||
         this.inputHandler.consumeAction('fire')
       ) {
+        this.bulletManager.clear();
         this.setState('TITLE');
       }
     }
@@ -477,17 +519,12 @@ export class Game implements IGameEngine {
     const height = Game.VIRTUAL_HEIGHT;
 
     ctx.save();
-    // Render remaining life icons (simple player ship glyphs)
-    for (let i = 0; i < Math.min(5, this.lives); i++) {
-      const lx = 12 + i * 14;
+    // Render remaining reserve lives (authentic Galaga displays reserve lives)
+    const reserveLives = Math.max(0, this.lives - 1);
+    for (let i = 0; i < Math.min(5, reserveLives); i++) {
+      const lx = 16 + i * 14;
       const ly = height - 12;
-
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(lx + 4, ly, 2, 8);
-      ctx.fillStyle = '#FF0000';
-      ctx.fillRect(lx + 2, ly + 4, 6, 4);
-      ctx.fillStyle = '#00FFFF';
-      ctx.fillRect(lx, ly + 6, 10, 2);
+      SpriteRenderer.draw(ctx, 'PLAYER_LIFE_ICON', lx, ly);
     }
 
     // Render Stage Badge number
@@ -564,6 +601,13 @@ export class Game implements IGameEngine {
   }
 
   private renderPlayingScreen(ctx: CanvasRenderingContext2D): void {
+    // 1. Render Active Projectiles
+    this.bulletManager.render(ctx);
+
+    // 2. Render Player Ship
+    this.player.render(ctx);
+
+    // 3. Challenging Stage Overlay banner if applicable
     if (this.state === 'CHALLENGING_STAGE') {
       ctx.save();
       ctx.font = '8px monospace';
@@ -691,6 +735,14 @@ export class Game implements IGameEngine {
 
   public getGameLoop(): GameLoop {
     return this.gameLoop;
+  }
+
+  public getPlayer(): Player {
+    return this.player;
+  }
+
+  public getBulletManager(): BulletManager {
+    return this.bulletManager;
   }
 
   public getCanvas(): HTMLCanvasElement {

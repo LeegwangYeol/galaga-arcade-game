@@ -1,4 +1,4 @@
-# BRIEFING — 2026-09-02T12:26:35Z
+# BRIEFING — 2026-09-02T12:40:35Z
 
 ## Mission
 Develop a fully playable, authentic Galaga arcade web game with Vercel deployment, Git/GitHub integration, high-fidelity audio/visuals, and 100% test verification using a 30+ agent swarm.
@@ -22,16 +22,16 @@ Develop a fully playable, authentic Galaga arcade web game with Vercel deploymen
   0. Survey full scope (3 parallel Explorers) [done]
   1. Decompose & Initialize PROJECT.md and TEST_INFRA.md [done]
   2. M1: Project Setup, Build & Git Infrastructure [done]
-  3. M2: Core Game Loop, Starfield & Input Engine [in-progress - worker implementing]
-  4. M3: Player Ship & Dual Fighter Docking System [pending]
+  3. M2: Core Game Loop, Starfield & Input Engine [done]
+  4. M3: Player Ship & Dual Fighter Docking System [in-progress - worker implementing]
   5. M4: Enemy Formation, Bézier Flight Paths & AI Diving [pending]
   6. M5: Boss Galaga Tractor Beam & Capture/Rescue Mechanics [pending]
   7. M6: Web Audio Procedural Chiptune SFX & Visual Particle System [pending]
   8. M7: UI/UX, Scoring, High Score LocalStorage & Mobile Controls [pending]
   9. M8: Final Integration, E2E Test Suite & Adversarial Hardening [pending]
   10. E2E Testing Track: Opaque-box Test Harness & Tiers 1-4 Test Suites [done/ready]
-- **Current phase**: 2 (Iteration Loop M2 Worker)
-- **Current focus**: Milestone 2 Worker (`m2_worker`) implementing core loop, screen manager, starfield, input handler, and game coordinator.
+- **Current phase**: 2 (Iteration Loop M3 Worker)
+- **Current focus**: Milestone 3 Worker (`m3_worker`) implementing Player ship, Dual Fighter docking, Bullet system, SpriteRenderer.
 
 ## 🔒 Key Constraints
 - Pure Web Audio API chiptune synthesis (no external audio assets required).
@@ -53,10 +53,10 @@ Develop a fully playable, authentic Galaga arcade web game with Vercel deploymen
 ## Team Roster
 | Agent | Type | Work Item | Status | Conv ID |
 |---|---|---|---|---|
-| m2_explorer_1 | teamwork_preview_explorer | Game Loop & Object Pool Specialist | completed | a1ae3e60-fe8a-4822-8633-eadae1fa4d2f |
-| m2_explorer_2 | teamwork_preview_explorer | Screen Manager & Starfield Specialist | completed | a51bad0b-efc3-4a46-9882-960c5a15d964 |
-| m2_explorer_3 | teamwork_preview_explorer | Input & Game Coordinator Specialist | completed | b15f3564-3749-4507-b435-c8a5c30bd19b |
-| m2_worker | teamwork_preview_worker | M2 Core Engine Implementation | in-progress | 2e07612b-2eb9-4430-9464-ef1264be2269 |
+| m3_explorer_1 | teamwork_preview_explorer | Player Mechanics & Dual Docking Specialist | completed | 811b112d-1489-4d26-9e88-d2ab40cb6ffc |
+| m3_explorer_2 | teamwork_preview_explorer | Bullet & Projectile Specialist | completed | 25921bf9-db23-4c64-8f65-096225dc9139 |
+| m3_explorer_3 | teamwork_preview_explorer | Sprite Graphics Specialist | completed | 0f32c438-a162-4419-8412-5f5a724ec440 |
+| m3_worker | teamwork_preview_worker | M3 Player & Bullet Implementation | in-progress | b7843425-f0cd-471d-80c6-ceec33700fdc |
 
 ## Active Timers
 - Heartbeat cron: a47fd167-cbab-4c4b-bc2b-cc7faa3d92f7/task-21
