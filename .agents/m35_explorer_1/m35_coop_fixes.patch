@@ -1,0 +1,41 @@
+diff --git a/src/core/Game.ts b/src/core/Game.ts
+--- a/src/core/Game.ts
++++ b/src/core/Game.ts
+@@ -1009,10 +1009,14 @@ export class Game {
+     // Handle Co-op Life Donation Inputs
+     if (this.inputHandler.consumeAction('donateLife' as any, 'p1')) {
+-      this.playerManager.donateLife('p1');
++      if (!this.playerManager.donateLife('p1')) {
++        this.playerManager.donateLife('p2');
++      }
+     }
+     if (this.inputHandler.consumeAction('donateLife' as any, 'p2')) {
+-      this.playerManager.donateLife('p2');
++      if (!this.playerManager.donateLife('p2')) {
++        this.playerManager.donateLife('p1');
++      }
+     }
+ 
+     const inputs = this.isCoop()
+diff --git a/src/ui/InputHandler.ts b/src/ui/InputHandler.ts
+--- a/src/ui/InputHandler.ts
++++ b/src/ui/InputHandler.ts
+@@ -1309,5 +1309,5 @@ export class InputHandler {
+   private isP2SpecialKey(c: string, k: string): boolean { return c === 'KeyM' || k === 'm' || k === 'M' || c === 'ShiftRight'; }
+   private isP2DonateKey(c: string, k: string): boolean {
+-    return c === 'NumpadDecimal' || c === 'Period' || k === '.' || c === 'KeyO' || k === 'o' || k === 'O';
++    return c === 'NumpadDecimal' || c === 'Period' || k === '.' || c === 'KeyO' || k === 'o' || k === 'O' || c === 'KeyL' || k === 'l' || k === 'L';
+   }
+   private isAnyP1LeftKeyPressed(): boolean { return this.activeKeys.has('KeyA') || this.activeKeys.has('a') || this.activeKeys.has('A'); }
+diff --git a/src/ui/BottomDashboard.ts b/src/ui/BottomDashboard.ts
+--- a/src/ui/BottomDashboard.ts
++++ b/src/ui/BottomDashboard.ts
+@@ -342,6 +342,2 @@ export class BottomDashboard {
+       this.elP2Container.classList.toggle('zone-hidden', !isCoop);
+     }
+-    if (this.zoneRight) {
+-      this.zoneRight.style.display = isCoop ? '' : 'none';
+-      this.zoneRight.classList.toggle('zone-hidden', !isCoop);
+-    }
+ 
+     if (this.elScoreRackSingle) {

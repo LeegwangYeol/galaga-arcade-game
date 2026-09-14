@@ -10,7 +10,7 @@
  */
 
 import { EnemyType } from '../types';
-import type { ScoreRecord, HUDState } from '../types';
+import type { ScoreRecord, HUDState, PlayerId } from '../types';
 
 /**
  * Result payload emitted after adding score.
@@ -92,16 +92,22 @@ export class ScoreManager {
   private _lives: number = SCORE_MATRIX.INITIAL_LIVES;
   private _stage: number = 1;
 
-  // Telemetry Metrics
+  // Player 1 Telemetry Metrics & Extend Threshold Tracker
   private _shotsFired: number = 0;
   private _shotsHit: number = 0;
   private _challengingHits: number = 0;
-
-  // Extend Threshold Tracker
   private _nextExtraLifeThresholdIndex: number = 0;
 
+  // Player 2 State & Telemetry Metrics (M31 Co-op Multiplayer)
+  private _p2Score: number = 0;
+  private _p2Lives: number = SCORE_MATRIX.INITIAL_LIVES;
+  private _p2ShotsFired: number = 0;
+  private _p2ShotsHit: number = 0;
+  private _p2ChallengingHits: number = 0;
+  private _p2NextExtraLifeThresholdIndex: number = 0;
+
   // Callbacks
-  private _onExtraLifeCallback: ((count: number) => void) | null = null;
+  private _onExtraLifeCallback: ((count: number, playerId?: PlayerId) => void) | null = null;
   private _onScoreChangedCallback: ((payload: ScoreEventPayload) => void) | null = null;
 
   // Storage Key
@@ -113,7 +119,10 @@ export class ScoreManager {
     } else if (config) {
       if (config.storageKey) this._storageKey = config.storageKey;
       if (config.defaultHighScore !== undefined) this._highScore = config.defaultHighScore;
-      if (config.initialLives !== undefined) this._lives = Math.max(0, config.initialLives);
+      if (config.initialLives !== undefined) {
+        this._lives = Math.max(0, config.initialLives);
+        this._p2Lives = Math.max(0, config.initialLives);
+      }
       if (config.startingStage !== undefined) this._stage = Math.max(1, config.startingStage);
     }
     this.loadHighScore();
@@ -127,12 +136,20 @@ export class ScoreManager {
     return this._score;
   }
 
+  public set score(val: number) {
+    this.setScore(val, 'p1');
+  }
+
   public get highScore(): number {
     return this._highScore;
   }
 
   public get lives(): number {
     return this._lives;
+  }
+
+  public set lives(val: number) {
+    this.setLives(val, 'p1');
   }
 
   public get stage(): number {
@@ -155,11 +172,54 @@ export class ScoreManager {
     return this._storageKey;
   }
 
+  // Multi-Player Discriminator Accessors
+  public getScore(playerId: PlayerId = 'p1'): number {
+    return playerId === 'p2' ? this._p2Score : this._score;
+  }
+
+  public getLives(playerId: PlayerId = 'p1'): number {
+    return playerId === 'p2' ? this._p2Lives : this._lives;
+  }
+
+  public getShotsFired(playerId: PlayerId = 'p1'): number {
+    return playerId === 'p2' ? this._p2ShotsFired : this._shotsFired;
+  }
+
+  public getShotsHit(playerId: PlayerId = 'p1'): number {
+    return playerId === 'p2' ? this._p2ShotsHit : this._shotsHit;
+  }
+
+  public getChallengingHits(playerId: PlayerId = 'p1'): number {
+    return playerId === 'p2' ? this._p2ChallengingHits : this._challengingHits;
+  }
+
+  public setScore(val: number, playerId: PlayerId = 'p1'): void {
+    const sanitized = Math.max(0, Math.floor(val));
+    if (playerId === 'p2') {
+      this._p2Score = sanitized;
+    } else {
+      this._score = sanitized;
+    }
+    if (sanitized > this._highScore) {
+      this._highScore = sanitized;
+      this.saveHighScore();
+    }
+  }
+
+  public setLives(val: number, playerId: PlayerId = 'p1'): void {
+    const sanitized = Math.max(0, Math.floor(val));
+    if (playerId === 'p2') {
+      this._p2Lives = sanitized;
+    } else {
+      this._lives = sanitized;
+    }
+  }
+
   // ==========================================================================
   // Event Subscriptions
   // ==========================================================================
 
-  public onExtraLife(callback: (count: number) => void): void {
+  public onExtraLife(callback: (count: number, playerId?: PlayerId) => void): void {
     this._onExtraLifeCallback = callback;
   }
 
@@ -179,6 +239,13 @@ export class ScoreManager {
     this._shotsHit = 0;
     this._challengingHits = 0;
     this._nextExtraLifeThresholdIndex = 0;
+
+    this._p2Score = 0;
+    this._p2Lives = Math.max(0, initialLives);
+    this._p2ShotsFired = 0;
+    this._p2ShotsHit = 0;
+    this._p2ChallengingHits = 0;
+    this._p2NextExtraLifeThresholdIndex = 0;
   }
 
   public setStage(stage: number): void {
@@ -190,18 +257,28 @@ export class ScoreManager {
     return this._stage;
   }
 
-  public deductLife(): number {
+  public deductLife(count: number = 1, playerId: PlayerId = 'p1'): number {
+    if (playerId === 'p2') {
+      if (this._p2Lives > 0) {
+        this._p2Lives = Math.max(0, this._p2Lives - count);
+      }
+      return this._p2Lives;
+    }
     if (this._lives > 0) {
-      this._lives -= 1;
+      this._lives = Math.max(0, this._lives - count);
     }
     return this._lives;
   }
 
-  public addLife(count: number = 1): number {
+  public addLife(count: number = 1, playerId: PlayerId = 'p1'): number {
     if (count > 0) {
-      this._lives += count;
+      if (playerId === 'p2') {
+        this._p2Lives += count;
+      } else {
+        this._lives += count;
+      }
     }
-    return this._lives;
+    return playerId === 'p2' ? this._p2Lives : this._lives;
   }
 
   // ==========================================================================
@@ -241,40 +318,56 @@ export class ScoreManager {
   // Score Mutation & Point Calculation
   // ==========================================================================
 
-  public addScore(points: number): ScoreEventPayload {
+  public addScore(points: number, playerId: PlayerId = 'p1'): ScoreEventPayload {
     if (points <= 0 || !Number.isFinite(points)) {
       return {
         addedScore: 0,
-        currentScore: this._score,
+        currentScore: this.getScore(playerId),
         highScore: this._highScore,
         extraLivesAwarded: 0,
       };
     }
 
     const sanitizedPoints = Math.floor(points);
-    this._score += sanitizedPoints;
-
-    // Check and award extra life thresholds
     let extraLivesAwarded = 0;
-    while (this._score >= this.getExtraLifeThreshold(this._nextExtraLifeThresholdIndex)) {
-      this._lives += 1;
-      extraLivesAwarded += 1;
-      this._nextExtraLifeThresholdIndex += 1;
+
+    if (playerId === 'p2') {
+      this._p2Score += sanitizedPoints;
+      while (this._p2Score >= this.getExtraLifeThreshold(this._p2NextExtraLifeThresholdIndex)) {
+        this._p2Lives += 1;
+        extraLivesAwarded += 1;
+        this._p2NextExtraLifeThresholdIndex += 1;
+      }
+      if (this._p2Score > this._highScore) {
+        this._highScore = this._p2Score;
+        this.saveHighScore();
+      }
+    } else {
+      this._score += sanitizedPoints;
+      while (this._score >= this.getExtraLifeThreshold(this._nextExtraLifeThresholdIndex)) {
+        this._lives += 1;
+        extraLivesAwarded += 1;
+        this._nextExtraLifeThresholdIndex += 1;
+      }
+      if (this._score > this._highScore) {
+        this._highScore = this._score;
+        this.saveHighScore();
+      }
     }
 
     if (extraLivesAwarded > 0 && this._onExtraLifeCallback) {
-      this._onExtraLifeCallback(extraLivesAwarded);
-    }
-
-    // High Score tracking and auto-persist
-    if (this._score > this._highScore) {
-      this._highScore = this._score;
-      this.saveHighScore();
+      if (playerId === 'p2') {
+        this._onExtraLifeCallback(extraLivesAwarded, 'p2');
+      } else if (this._onExtraLifeCallback.length >= 2) {
+        this._onExtraLifeCallback(extraLivesAwarded, playerId);
+      } else {
+        this._onExtraLifeCallback(extraLivesAwarded);
+      }
     }
 
     const payload: ScoreEventPayload = {
       addedScore: sanitizedPoints,
-      currentScore: this._score,
+      currentScore: this.getScore(playerId),
       highScore: this._highScore,
       extraLivesAwarded,
     };
@@ -289,7 +382,8 @@ export class ScoreManager {
   public addScoreForEnemy(
     type: EnemyType | string,
     isDiving: boolean,
-    escortCount: number = 0
+    escortCount: number = 0,
+    playerId: PlayerId = 'p1'
   ): ScoreEventPayload {
     const rawType = String(type).toUpperCase();
     let points = 0;
@@ -322,19 +416,20 @@ export class ScoreManager {
       points = isDiving ? 100 : 50;
     }
 
-    return this.addScore(points);
+    return this.addScore(points, playerId);
   }
 
-  public addScoreForCapturedFighter(isDiving: boolean): ScoreEventPayload {
+  public addScoreForCapturedFighter(isDiving: boolean, playerId: PlayerId = 'p1'): ScoreEventPayload {
     const points = isDiving
       ? SCORE_MATRIX.CAPTURED_FIGHTER_DIVING
       : SCORE_MATRIX.CAPTURED_FIGHTER_FORMATION;
-    return this.addScore(points);
+    return this.addScore(points, playerId);
   }
 
   public addChallengingStageBonus(
     hits: number,
-    totalEnemies: number = SCORE_MATRIX.CHALLENGING_STAGE_TOTAL_ENEMIES
+    totalEnemies: number = SCORE_MATRIX.CHALLENGING_STAGE_TOTAL_ENEMIES,
+    playerId: PlayerId = 'p1'
   ): ScoreEventPayload {
     const clampedHits = Math.max(0, Math.min(totalEnemies, Math.floor(hits)));
     let bonus = 0;
@@ -345,36 +440,61 @@ export class ScoreManager {
       bonus = clampedHits * SCORE_MATRIX.CHALLENGING_STAGE_HIT;
     }
 
-    return this.addScore(bonus);
+    return this.addScore(bonus, playerId);
   }
 
   // ==========================================================================
   // Telemetry & Accuracy Statistics Tracking
   // ==========================================================================
 
-  public recordShotFired(count: number = 1): void {
+  public recordShotFired(countOrPlayerId: number | PlayerId = 1, maybePlayerId: PlayerId = 'p1'): void {
+    const count = typeof countOrPlayerId === 'number' ? countOrPlayerId : 1;
+    const playerId = typeof countOrPlayerId === 'string' ? countOrPlayerId : maybePlayerId;
     if (count > 0 && Number.isFinite(count)) {
-      this._shotsFired += Math.floor(count);
+      const sanitized = Math.floor(count);
+      if (playerId === 'p2') {
+        this._p2ShotsFired += sanitized;
+      } else {
+        this._shotsFired += sanitized;
+      }
     }
   }
 
-  public recordShotHit(count: number = 1): void {
+  public recordShotHit(countOrPlayerId: number | PlayerId = 1, maybePlayerId: PlayerId = 'p1'): void {
+    const count = typeof countOrPlayerId === 'number' ? countOrPlayerId : 1;
+    const playerId = typeof countOrPlayerId === 'string' ? countOrPlayerId : maybePlayerId;
     if (count > 0 && Number.isFinite(count)) {
-      this._shotsHit += Math.floor(count);
+      const sanitized = Math.floor(count);
+      if (playerId === 'p2') {
+        this._p2ShotsHit += sanitized;
+      } else {
+        this._shotsHit += sanitized;
+      }
     }
   }
 
-  public recordChallengingHit(count: number = 1): void {
+  public recordChallengingHit(countOrPlayerId: number | PlayerId = 1, maybePlayerId: PlayerId = 'p1'): void {
+    const count = typeof countOrPlayerId === 'number' ? countOrPlayerId : 1;
+    const playerId = typeof countOrPlayerId === 'string' ? countOrPlayerId : maybePlayerId;
     if (count > 0 && Number.isFinite(count)) {
-      this._challengingHits = Math.min(
-        SCORE_MATRIX.CHALLENGING_STAGE_TOTAL_ENEMIES,
-        this._challengingHits + Math.floor(count)
-      );
+      const added = Math.floor(count);
+      if (playerId === 'p2') {
+        this._p2ChallengingHits = Math.min(
+          SCORE_MATRIX.CHALLENGING_STAGE_TOTAL_ENEMIES,
+          this._p2ChallengingHits + added
+        );
+      } else {
+        this._challengingHits = Math.min(
+          SCORE_MATRIX.CHALLENGING_STAGE_TOTAL_ENEMIES,
+          this._challengingHits + added
+        );
+      }
     }
   }
 
-  public resetChallengingHits(): void {
-    this._challengingHits = 0;
+  public resetChallengingHits(playerId?: PlayerId): void {
+    if (!playerId || playerId === 'p1') this._challengingHits = 0;
+    if (!playerId || playerId === 'p2') this._p2ChallengingHits = 0;
   }
 
   public getAccuracy(): number {

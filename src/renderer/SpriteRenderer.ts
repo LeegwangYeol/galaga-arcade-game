@@ -73,7 +73,7 @@ export const PLAYER_FIGHTER_MATRIX: string[][] = [
   ['.','W','W','.','.','.','.','R','.','.','.','.','W','W','.']
 ];
 
-export function createDualFighterMatrix(singleMatrix: string[][]): string[][] {
+export function createDualFighterMatrix(singleMatrix: string[][], connectorChar: string = 'W'): string[][] {
   const height = singleMatrix.length;
   const singleWidth = singleMatrix[0]?.length ?? 15;
   const dualMatrix: string[][] = [];
@@ -85,7 +85,7 @@ export function createDualFighterMatrix(singleMatrix: string[][]): string[][] {
       row.push(sourceRow[c] ?? '.');
     }
     const isWingRow = r >= 10 && r <= 13;
-    row.push(isWingRow ? 'W' : '.');
+    row.push(isWingRow ? connectorChar : '.');
     for (let c = 0; c < singleWidth; c++) {
       row.push(sourceRow[c] ?? '.');
     }
@@ -95,6 +95,31 @@ export function createDualFighterMatrix(singleMatrix: string[][]): string[][] {
 }
 
 export const DUAL_FIGHTER_MATRIX: string[][] = createDualFighterMatrix(PLAYER_FIGHTER_MATRIX);
+
+/**
+ * Player 2 (Crimson/Amber) Fighter Bit-Matrix (15x16)
+ * Uses Crimson '#E70000', Dark Red '#9E0000', Amber '#FF7F00', Yellow '#FFFF00'
+ */
+export const PLAYER_FIGHTER_P2_MATRIX: string[][] = [
+  ['.','.','.','.','.','.','.','O','.','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','.','O','.','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','Y','R','Y','.','.','.','.','.','.'],
+  ['.','.','.','.','.','.','Y','R','Y','.','.','.','.','.','.'],
+  ['.','.','.','.','.','R','R','R','R','R','.','.','.','.','.'],
+  ['.','.','.','.','.','R','D','D','D','R','.','.','.','.','.'],
+  ['.','.','.','.','R','R','D','D','D','R','R','.','.','.','.'],
+  ['.','.','.','.','R','R','R','R','R','R','R','.','.','.','.'],
+  ['.','R','.','.','R','Y','Y','R','Y','Y','R','.','.','R','.'],
+  ['.','R','.','R','R','Y','Y','R','Y','Y','R','R','.','R','.'],
+  ['.','R','R','R','R','R','R','R','R','R','R','R','R','R','.'],
+  ['R','R','R','R','R','R','D','D','D','R','R','R','R','R','R'],
+  ['R','Y','Y','R','R','R','D','D','D','R','R','R','Y','Y','R'],
+  ['R','Y','Y','R','R','R','R','R','R','R','R','R','Y','Y','R'],
+  ['R','R','R','R','.','.','D','D','D','.','.','R','R','R','R'],
+  ['.','R','R','.','.','.','.','D','.','.','.','.','R','R','.']
+];
+
+export const DUAL_FIGHTER_P2_MATRIX: string[][] = createDualFighterMatrix(PLAYER_FIGHTER_P2_MATRIX, 'R');
 
 export const CAPTURED_FIGHTER_MATRIX: string[][] = [
   ['.','.','.','.','.','.','.','Y','.','.','.','.','.','.','.'],
@@ -124,6 +149,20 @@ export const PLAYER_MISSILE_MATRIX: string[][] = [
   ['W','W','W'],
   ['.','W','.'],
   ['.','W','.']
+];
+
+/**
+ * Player 2 (Amber/Crimson) Missile Matrix (3x8)
+ */
+export const PLAYER_MISSILE_P2_MATRIX: string[][] = [
+  ['.','O','.'],
+  ['.','O','.'],
+  ['.','Y','.'],
+  ['.','Y','.'],
+  ['R','R','R'],
+  ['R','R','R'],
+  ['.','R','.'],
+  ['.','R','.']
 ];
 
 export const ENEMY_BULLET_MATRIX: string[][] = [
@@ -157,6 +196,22 @@ export const PLAYER_LIFE_ICON_MATRIX: string[][] = [
   ['W','R','R','W','R','R','R','W','R','R','W'],
   ['W','W','W','.','R','R','R','.','W','W','W'],
   ['.','W','.','.','.','R','.','.','.','W','.']
+];
+
+/**
+ * Player 2 Life Icon Matrix (11x10)
+ */
+export const PLAYER_LIFE_ICON_P2_MATRIX: string[][] = [
+  ['.','.','.','.','.','O','.','.','.','.','.'],
+  ['.','.','.','.','Y','R','Y','.','.','.','.'],
+  ['.','.','.','.','R','R','R','.','.','.','.'],
+  ['.','.','.','R','Y','R','Y','R','.','.','.'],
+  ['.','R','.','R','Y','R','Y','R','.','R','.'],
+  ['.','R','R','R','R','R','R','R','R','R','.'],
+  ['R','R','R','R','D','D','D','R','R','R','R'],
+  ['R','Y','Y','R','D','D','D','R','Y','Y','R'],
+  ['R','R','R','.','D','D','D','.','R','R','R'],
+  ['.','R','.','.','.','D','.','.','.','R','.']
 ];
 
 // --- Enemy Matrices ---
@@ -1110,7 +1165,7 @@ export class SpriteRenderer {
   public static initialize(): void {
     if (SpriteRenderer.isInitialized) return;
 
-    // 1. Register Player & Projectiles
+    // 1. Register Player & Projectiles (P1 & P2)
     SpriteRenderer.registerDefinition({
       id: 'PLAYER_FIGHTER',
       width: 15,
@@ -1126,6 +1181,20 @@ export class SpriteRenderer {
     });
 
     SpriteRenderer.registerDefinition({
+      id: 'PLAYER_FIGHTER_P2',
+      width: 15,
+      height: 16,
+      frames: [PLAYER_FIGHTER_P2_MATRIX]
+    });
+
+    SpriteRenderer.registerDefinition({
+      id: 'DUAL_FIGHTER_P2',
+      width: 31,
+      height: 16,
+      frames: [DUAL_FIGHTER_P2_MATRIX]
+    });
+
+    SpriteRenderer.registerDefinition({
       id: 'CAPTURED_FIGHTER',
       width: 15,
       height: 16,
@@ -1137,6 +1206,13 @@ export class SpriteRenderer {
       width: 3,
       height: 8,
       frames: [PLAYER_MISSILE_MATRIX]
+    });
+
+    SpriteRenderer.registerDefinition({
+      id: 'PLAYER_MISSILE_P2',
+      width: 3,
+      height: 8,
+      frames: [PLAYER_MISSILE_P2_MATRIX]
     });
 
     SpriteRenderer.registerDefinition({
@@ -1158,6 +1234,13 @@ export class SpriteRenderer {
       width: 11,
       height: 10,
       frames: [PLAYER_LIFE_ICON_MATRIX]
+    });
+
+    SpriteRenderer.registerDefinition({
+      id: 'PLAYER_LIFE_ICON_P2',
+      width: 11,
+      height: 10,
+      frames: [PLAYER_LIFE_ICON_P2_MATRIX]
     });
 
     // 2. Register Enemy Hierarchies
@@ -1866,7 +1949,8 @@ export class SpriteRenderer {
     y: number,
     isDual: boolean,
     flashTimer: number = 0,
-    animTimer: number = 0
+    animTimer: number = 0,
+    colorScheme: 'classic' | 'crimson' | 'amber' = 'classic'
   ): void {
     ctx.save();
 
@@ -1875,16 +1959,23 @@ export class SpriteRenderer {
     const pulseOffset = Math.sin(animTimer * pulseSpeed) * 0.8;
     const rot = animTimer * 1.6;
 
+    const isAmber = colorScheme === 'crimson' || colorScheme === 'amber';
+    const primaryColor = isAmber ? '#FF7F00' : '#00FFFF';
+    const fillAlpha = isFlashing ? 0.45 : 0.14;
+    const fillColor = isAmber
+      ? `rgba(255, 127, 0, ${fillAlpha})`
+      : `rgba(0, 255, 255, ${fillAlpha})`;
+
     // Strobe Style Configuration
     if (isFlashing) {
       ctx.strokeStyle = '#FFFFFF';
-      ctx.fillStyle = 'rgba(0, 255, 255, 0.45)';
+      ctx.fillStyle = fillColor;
       ctx.lineWidth = 2.0;
-      ctx.shadowColor = '#00FFFF';
+      ctx.shadowColor = primaryColor;
       ctx.shadowBlur = 8;
     } else {
-      ctx.strokeStyle = '#00FFFF';
-      ctx.fillStyle = 'rgba(0, 255, 255, 0.14)';
+      ctx.strokeStyle = primaryColor;
+      ctx.fillStyle = fillColor;
       ctx.lineWidth = 1.4;
       ctx.globalAlpha = 0.60 + 0.25 * Math.sin(animTimer * 10.0);
     }
@@ -2419,10 +2510,14 @@ export class SpriteRenderer {
     currentX: number,
     currentY: number,
     isDual: boolean = false,
-    ghostTimer: number = 0
+    ghostTimer: number = 0,
+    colorScheme: 'classic' | 'crimson' = 'classic'
   ): void {
     ctx.save();
-    const spriteKey = isDual ? 'DUAL_FIGHTER' : 'PLAYER_FIGHTER';
+    const isP2 = colorScheme === 'crimson';
+    const spriteKey = isDual
+      ? (isP2 ? 'DUAL_FIGHTER_P2' : 'DUAL_FIGHTER')
+      : (isP2 ? 'PLAYER_FIGHTER_P2' : 'PLAYER_FIGHTER');
     const ghostCount = 4;
 
     for (let k = 1; k <= ghostCount; k++) {

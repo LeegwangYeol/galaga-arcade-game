@@ -514,9 +514,216 @@
     .text-yellow { color: var(--dash-yellow); }
     .text-white { color: #ffffff; }
     .text-grey { color: #777799; }
+    .text-magenta { color: #ff007f; }
+    .text-crimson { color: #ff2a2a; }
+
+    /* ==========================================================================
+       Milestone M34: Symmetrical Dual Bottom Dashboard HUD Styles
+       ========================================================================== */
+    .bottom-dashboard.coop-mode, .bottom-dashboard.mode-coop {
+      grid-template-columns: 1fr 140px 1fr;
+      padding: 3px 8px;
+    }
+
+    .bottom-dashboard.coop-mode.compact-mode, .bottom-dashboard.mode-coop.compact-mode {
+      grid-template-columns: 1fr 110px 1fr;
+      padding: 2px 4px;
+    }
+
+    /* Player HUD Containers */
+    .p1-hud-container, .p2-hud-container {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      width: 100%;
+    }
+
+    .p1-header-row, .p2-header-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 8px;
+      line-height: 9px;
+    }
+
+    .p2-header-row {
+      flex-direction: row-reverse;
+      text-align: right;
+    }
+
+    .p1-stats-row, .p2-stats-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .p2-stats-row {
+      flex-direction: row-reverse;
+    }
+
+    /* Player Badges */
+    .badge-player, .player-badge {
+      font-weight: bold;
+      font-size: 7px;
+      padding: 1px 3px;
+      border-radius: 2px;
+    }
+    .badge-p1 {
+      background: rgba(0, 255, 255, 0.2);
+      color: var(--dash-cyan);
+      border: 1px solid var(--dash-cyan);
+    }
+    .badge-p2 {
+      background: rgba(255, 0, 127, 0.2);
+      color: #ff007f;
+      border: 1px solid #ff007f;
+    }
+
+    /* Combo Badges */
+    .combo-badge {
+      font-size: 7px;
+      color: #ffff00;
+      font-weight: bold;
+    }
+
+    /* Co-op Center Telemetry */
+    .coop-center-telemetry {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      width: 100%;
+    }
+
+    .center-top-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      font-size: 7px;
+    }
+
+    .coop-stage-badge {
+      font-size: 7px;
+      color: var(--dash-cyan);
+      font-weight: bold;
+    }
+
+    .coop-high-entry {
+      display: flex;
+      gap: 3px;
+      font-size: 7px;
+    }
+
+    .center-warning-banner {
+      background: rgba(255, 34, 34, 0.3);
+      border: 1px solid #ff2222;
+      border-radius: 2px;
+      padding: 0 4px;
+      font-size: 7px;
+      color: #ff4444;
+      animation: pulseCrisis 0.5s infinite alternate;
+    }
+
+    .center-controls-prompt {
+      font-size: 6px;
+      color: #8888aa;
+      white-space: nowrap;
+    }
+
+    .prompt-sep {
+      margin: 0 2px;
+      color: #555577;
+    }
+
+    /* Mini Special Meters for P1 & P2 */
+    .special-meter-mini {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      width: 100%;
+    }
+
+    .special-mini-track {
+      height: 4px;
+      background: #0a0a18;
+      border: 1px solid #333366;
+      border-radius: 2px;
+      overflow: hidden;
+      width: 100%;
+    }
+
+    .special-mini-fill {
+      height: 100%;
+      transition: width 0.08s linear;
+    }
+
+    .p1-fill {
+      background: linear-gradient(90deg, #00ffff, #5b93ff);
+    }
+
+    .p2-fill {
+      background: linear-gradient(90deg, #ff007f, #ffbf00);
+    }
+
+    .special-cue-mini {
+      font-size: 6px;
+      line-height: 7px;
+    }
+
+    /* Revive & Elimination Alerts */
+    .p1-revive-alert, .p2-revive-alert {
+      font-size: 7px;
+      font-weight: bold;
+      color: #ffff00;
+      background: rgba(40, 40, 0, 0.6);
+      border: 1px solid #ffff00;
+      border-radius: 2px;
+      padding: 0 3px;
+      animation: pulseRevive 0.8s infinite ease-in-out;
+    }
+
+    .p1-revive-alert.revive-urgent, .p2-revive-alert.revive-urgent {
+      color: #ff2222;
+      border-color: #ff2222;
+      background: rgba(60, 0, 0, 0.8);
+      animation: pulseReviveUrgent 0.3s infinite ease-in-out;
+    }
+
+    .revive-active {
+      filter: drop-shadow(0 0 4px rgba(255, 255, 0, 0.5));
+    }
+
+    .player-eliminated {
+      opacity: 0.45;
+      filter: grayscale(80%);
+    }
+
+    @keyframes pulseRevive {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(0.97); opacity: 0.7; }
+    }
+
+    @keyframes pulseReviveUrgent {
+      0%, 100% { transform: scale(1.03); background: rgba(120, 0, 0, 0.9); }
+      50% { transform: scale(0.97); background: rgba(50, 0, 0, 0.6); }
+    }
+
+    @keyframes pulseCrisis {
+      0% { opacity: 0.7; }
+      100% { opacity: 1; text-shadow: 0 0 6px #ff2222; }
+    }
 
     /* Compact Mode Reflow (< 480px Viewports) */
     @media (max-width: 480px) {
+      .bottom-dashboard.coop-mode, .bottom-dashboard.mode-coop {
+        grid-template-columns: 1fr 100px 1fr;
+        padding: 2px 4px;
+      }
+      .center-controls-prompt {
+        font-size: 5px;
+      }
       .bottom-dashboard, .cyber-dashboard {
         height: var(--dash-height-compact);
         grid-template-columns: 96px 1fr 82px;
@@ -560,6 +767,13 @@
         bottom: -10px;
         left: -10px;
         right: -10px;
+      }
+    }
+
+    @media (max-width: 380px) {
+      .bottom-dashboard.coop-mode, .bottom-dashboard.mode-coop {
+        grid-template-columns: 1fr 80px 1fr;
+        padding: 1px 2px;
       }
     }
 

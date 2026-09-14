@@ -16,24 +16,10 @@
  */
 
 import { SpriteRenderer } from '../renderer/SpriteRenderer';
-import type { Rect, Vector2D, InputState, PlayerData, PlayerState } from '../types';
+import type { Rect, Vector2D, InputState, PlayerData, PlayerState, PlayerId, PlayerColorScheme, PlayerStateType } from '../types';
 import { PowerUpType, normalizePowerUpType } from '../core/powerups/types';
 
-export type PlayerStateType =
-  | 'normal'
-  | 'capturing'
-  | 'captured'
-  | 'docking'
-  | 'dual'
-  | 'destroyed'
-  | 'respawning'
-  | 'ALIVE'
-  | 'CAPTURING'
-  | 'CAPTURED'
-  | 'DOCKING'
-  | 'DUAL'
-  | 'DESTROYED'
-  | 'RESPAWNING';
+export type { PlayerStateType };
 
 export interface RescuedFighterState {
   x: number;
@@ -52,6 +38,8 @@ export interface BulletSpawnRequest {
 }
 
 export interface PlayerConfig {
+  id?: PlayerId;
+  colorScheme?: PlayerColorScheme;
   x?: number;
   y?: number;
   lives?: number;
@@ -71,6 +59,10 @@ export class Player {
   public static readonly RESCUE_ANGULAR_VELOCITY = Math.PI * 4; // 720 deg/s
   public static readonly DEATH_DURATION = 0.5; // 0.5s explosion delay
 
+  // Identity & Visual Styling
+  public id: PlayerId = 'p1';
+  public colorScheme: PlayerColorScheme = 'classic';
+
   // Spatial Coordinates
   public x: number = 112;
   public y: number = Player.BASELINE_Y;
@@ -84,6 +76,7 @@ export class Player {
   public fireCooldownTimer: number = 0;
   public invulnerableTimer: number = 0;
   public deathTimer: number = 0;
+  public reviveTimer: number = 0;
 
   // Capture Animation State
   public captureTimer: number = 0;
@@ -141,7 +134,9 @@ export class Player {
   public onPlasmaBeamTick?: (x: number, y: number, isDual: boolean) => void;
 
   constructor(config?: PlayerConfig) {
-    this.x = config?.x ?? 112;
+    this.id = config?.id ?? 'p1';
+    this.colorScheme = config?.colorScheme ?? (this.id === 'p2' ? 'crimson' : 'classic');
+    this.x = config?.x ?? (this.id === 'p2' ? 144 : 112);
     this.y = config?.y ?? Player.BASELINE_Y;
     this.lives = config?.lives ?? 3;
     this.game = config?.game;
@@ -282,6 +277,8 @@ export class Player {
     else if (this._state === 'dual' || this._state === 'DUAL') contractState = 'DUAL';
     else if (this._state === 'destroyed' || this._state === 'DESTROYED') contractState = 'DESTROYED';
     else if (this._state === 'respawning' || this._state === 'RESPAWNING') contractState = 'RESPAWNING';
+    else if (this._state === 'revive_pending' || (this._state as any) === 'REVIVE_PENDING') contractState = 'REVIVE_PENDING';
+    else if (this._state === 'eliminated' || (this._state as any) === 'ELIMINATED') contractState = 'ELIMINATED';
 
     return {
       position: { x: this.x, y: this.y },
@@ -293,6 +290,17 @@ export class Player {
       respawnTimerMs: this.respawnTimerMs,
       score: this.score,
     };
+  }
+
+  public isAlive(): boolean {
+    const s = this._state;
+    return (
+      s !== 'destroyed' &&
+      s !== 'DESTROYED' &&
+      s !== 'eliminated' &&
+      (s as any) !== 'ELIMINATED' &&
+      (this.lives > 0 || s === 'respawning' || (s as any) === 'RESPAWNING')
+    );
   }
 
   // ==========================================================================
@@ -309,6 +317,7 @@ export class Player {
     this.fireCooldownTimer = 0;
     this.invulnerableTimer = 0;
     this.deathTimer = 0;
+    this.reviveTimer = 0;
     this.captureTimer = 0;
     this.captureAngle = 0;
     this.rescuedFighter.active = false;
@@ -363,8 +372,19 @@ export class Player {
     }
   }
 
+  public isCoop(): boolean {
+    if (!this.game) return false;
+    return typeof this.game.isCoop === 'function'
+      ? Boolean(this.game.isCoop())
+      : Boolean(this.game.isCoop);
+  }
+
   public respawn(): void {
-    this.x = 112;
+    if (this.isCoop()) {
+      this.x = this.id === 'p1' ? 80 : 144;
+    } else {
+      this.x = 112;
+    }
     this.y = Player.BASELINE_Y;
     this.vx = 0;
     this.vy = 0;
@@ -372,6 +392,7 @@ export class Player {
     this.invulnerableTimer = Player.INVULNERABLE_DURATION;
     this.fireCooldownTimer = 0;
     this.deathTimer = 0;
+    this.reviveTimer = 0;
     this.captureTimer = 0;
     this.captureAngle = 0;
     this.rescuedFighter.active = false;
@@ -382,6 +403,14 @@ export class Player {
   // ==========================================================================
 
   public update(dt: number, input?: InputState): void {
+    if (this._state === 'revive_pending' || (this._state as any) === 'REVIVE_PENDING') {
+      this.updateRevivePending(dt);
+      return;
+    }
+    if (this._state === 'eliminated' || (this._state as any) === 'ELIMINATED') {
+      return;
+    }
+
     this.animTimer += dt;
 
     if (this.shieldFlashTimer > 0) {
@@ -568,13 +597,36 @@ export class Player {
     }
   }
 
+  public startRevivePending(countdown: number = 10.0): void {
+    this._state = 'revive_pending';
+    this.reviveTimer = countdown;
+    this.x = this.id === 'p1' ? 80 : 144;
+    this.y = Player.BASELINE_Y;
+    this.vx = 0;
+    this.vy = 0;
+    this.game?.soundSynth?.playReviveEmergencyBeacon?.();
+  }
+
+  private updateRevivePending(dt: number): void {
+    this.reviveTimer = Math.max(0, this.reviveTimer - dt);
+    this.animTimer += dt;
+
+    if (this.reviveTimer <= 0) {
+      this._state = 'eliminated';
+      this.onGameOver?.();
+    }
+  }
+
   private updateDestroyed(dt: number): void {
     this.deathTimer -= dt;
     if (this.deathTimer <= 0) {
       this.deathTimer = 0;
       if (this.lives > 0) {
         this.respawn();
+      } else if (this.isCoop()) {
+        this.startRevivePending(10.0);
       } else {
+        this._state = 'destroyed';
         this.onGameOver?.();
       }
     }
@@ -660,7 +712,11 @@ export class Player {
       this._state === 'respawning' ||
       this._state === 'RESPAWNING' ||
       this._state === 'destroyed' ||
-      this._state === 'DESTROYED'
+      this._state === 'DESTROYED' ||
+      this._state === 'revive_pending' ||
+      (this._state as any) === 'REVIVE_PENDING' ||
+      this._state === 'eliminated' ||
+      (this._state as any) === 'ELIMINATED'
     );
   }
 
@@ -674,7 +730,11 @@ export class Player {
       this._state === 'capturing' ||
       this._state === 'CAPTURING' ||
       this._state === 'captured' ||
-      this._state === 'CAPTURED'
+      this._state === 'CAPTURED' ||
+      this._state === 'revive_pending' ||
+      (this._state as any) === 'REVIVE_PENDING' ||
+      this._state === 'eliminated' ||
+      (this._state as any) === 'ELIMINATED'
     ) {
       return false;
     }
@@ -898,8 +958,47 @@ export class Player {
       this._state === 'destroyed' ||
       this._state === 'DESTROYED' ||
       this._state === 'captured' ||
-      this._state === 'CAPTURED'
+      this._state === 'CAPTURED' ||
+      this._state === 'eliminated' ||
+      (this._state as any) === 'ELIMINATED'
     ) {
+      return;
+    }
+
+    const isP2 = this.id === 'p2' || this.colorScheme === 'crimson';
+    const fighterSprite = isP2 ? 'PLAYER_FIGHTER_P2' : 'PLAYER_FIGHTER';
+    const dualSprite = isP2 ? 'DUAL_FIGHTER_P2' : 'DUAL_FIGHTER';
+
+    const s = this._state;
+
+    // Special rendering for Co-op REVIVE_PENDING state
+    if (s === 'revive_pending' || (s as any) === 'REVIVE_PENDING') {
+      ctx.save();
+      // Expanding circular beacon pulse
+      const waveRadius = ((this.animTimer * 24) % 32);
+      ctx.strokeStyle = isP2 ? '#FF3333' : '#00FFFF';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, waveRadius, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Ship at 50% opacity
+      ctx.globalAlpha = 0.5;
+      SpriteRenderer.draw(ctx, fighterSprite, this.x, this.y);
+
+      // Cyan/crimson wireframe strobe
+      if (Math.floor(this.animTimer * 4) % 2 === 0) {
+        ctx.strokeStyle = isP2 ? '#FF4444' : '#00E5FF';
+        ctx.strokeRect(this.x - 7, this.y - 7, 14, 14);
+      }
+
+      // Overhead text badge: REVIVE ${Math.ceil(this.reviveTimer)}S in yellow/red
+      ctx.globalAlpha = 1.0;
+      ctx.font = '8px "Press Start 2P", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = this.reviveTimer > 3.0 ? '#FFFF00' : (Math.floor(this.animTimer * 10) % 2 === 0 ? '#FF2222' : '#FFFFFF');
+      ctx.fillText(`REVIVE ${Math.ceil(this.reviveTimer)}S`, Math.round(this.x), Math.round(this.y - 14));
+      ctx.restore();
       return;
     }
 
@@ -908,8 +1007,6 @@ export class Player {
       const isVisible = Math.floor(this.invulnerableTimer * 10) % 2 === 0;
       if (!isVisible) return;
     }
-
-    const s = this._state;
     if (s === 'capturing' || s === 'CAPTURING') {
       // Spinning capture sprite
       SpriteRenderer.draw(ctx, 'CAPTURED_FIGHTER', this.x, this.y, {
@@ -917,28 +1014,28 @@ export class Player {
       });
     } else if (this.isDual) {
       // Dual fighter composite sprite
-      SpriteRenderer.draw(ctx, 'DUAL_FIGHTER', this.x, this.y);
+      SpriteRenderer.draw(ctx, dualSprite, this.x, this.y);
     } else if (s === 'docking' || s === 'DOCKING') {
       // Active ship
-      SpriteRenderer.draw(ctx, 'PLAYER_FIGHTER', this.x, this.y);
+      SpriteRenderer.draw(ctx, fighterSprite, this.x, this.y);
       // Rescued ship descending
       if (this.rescuedFighter.active) {
         SpriteRenderer.draw(
           ctx,
-          'PLAYER_FIGHTER',
+          fighterSprite,
           this.rescuedFighter.x,
           this.rescuedFighter.y
         );
       }
     } else {
       // Standard single fighter
-      SpriteRenderer.draw(ctx, 'PLAYER_FIGHTER', this.x, this.y);
+      SpriteRenderer.draw(ctx, fighterSprite, this.x, this.y);
     }
 
     // Render Engine Booster Thrusters
     if (this.hasEngineBooster) {
       ctx.save();
-      ctx.fillStyle = '#00FFFF';
+      ctx.fillStyle = isP2 ? '#FF7F00' : '#00FFFF';
       if (this.isDual) {
         ctx.fillRect(Math.round(this.x - 8 - 1), Math.round(this.y + 7), 2, 4);
         ctx.fillRect(Math.round(this.x + 8 - 1), Math.round(this.y + 7), 2, 4);
@@ -967,7 +1064,8 @@ export class Player {
         this.x,
         this.y,
         this.isDual,
-        this.phaseGhostTimer
+        this.phaseGhostTimer,
+        isP2 ? 'crimson' : 'classic'
       );
     }
 
@@ -987,15 +1085,18 @@ export class Player {
         this.animTimer
       );
     } else if (this.hasShield || this.shieldFlashTimer > 0) {
-      // Render Kinetic Deflector Shield Barrier
+      // Render Kinetic Deflector Shield Barrier (Amber for P2, Cyan for P1)
       SpriteRenderer.drawPlayerShieldBarrier(
         ctx,
         this.x,
         this.y,
         this.isDual,
         this.shieldFlashTimer,
-        this.animTimer
+        this.animTimer,
+        isP2 ? 'amber' : 'classic'
       );
     }
   }
 }
+
+export { Player as PlayerEntity };

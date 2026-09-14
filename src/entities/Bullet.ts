@@ -19,6 +19,8 @@ import type {
   Poolable,
   Rect,
   Vector2D,
+  PlayerId,
+  ProjectileOwnerId,
 } from '../types';
 
 // ============================================================================
@@ -61,6 +63,7 @@ export class Bullet implements BulletData, Poolable {
   public velocity: Vector2D = { x: 0, y: 0 };
   public prevPosition: Vector2D = { x: 0, y: 0 };
   public owner: BulletOwner | 'DRONE' = 'PLAYER';
+  public ownerId: ProjectileOwnerId = 'p1';
   public type: BulletType = 'PLAYER_MISSILE';
   public active: boolean = false;
   public width: number = BULLET_CONFIG.PLAYER_WIDTH;
@@ -87,6 +90,7 @@ export class Bullet implements BulletData, Poolable {
     this.prevPosition.x = 0;
     this.prevPosition.y = 0;
     this.owner = 'PLAYER';
+    this.ownerId = 'p1';
     this.type = 'PLAYER_MISSILE';
     this.active = false;
     this.width = BULLET_CONFIG.PLAYER_WIDTH;
@@ -105,7 +109,8 @@ export class Bullet implements BulletData, Poolable {
     vx: number,
     vy: number,
     owner: BulletOwner | 'DRONE',
-    type: BulletType = (owner === 'PLAYER' || (owner as string) === 'DRONE') ? 'PLAYER_MISSILE' : 'ENEMY_RED_BULLET'
+    type: BulletType = (owner === 'PLAYER' || (owner as string) === 'DRONE') ? 'PLAYER_MISSILE' : 'ENEMY_RED_BULLET',
+    ownerId?: ProjectileOwnerId
   ): this {
     this.position.x = x;
     this.position.y = y;
@@ -114,6 +119,7 @@ export class Bullet implements BulletData, Poolable {
     this.velocity.x = vx;
     this.velocity.y = vy;
     this.owner = owner;
+    this.ownerId = ownerId ?? (owner === 'PLAYER' ? 'p1' : owner === 'DRONE' ? 'drone' : 'enemy');
     this.type = type;
     this.active = true;
     this.animTimer = 0;
@@ -211,13 +217,14 @@ export class Bullet implements BulletData, Poolable {
     if (!this.active) return;
 
     if (this.owner === 'PLAYER' || (this.owner as string) === 'DRONE') {
+      const spriteId = this.ownerId === 'p2' ? 'PLAYER_MISSILE_P2' : 'PLAYER_MISSILE';
       const rot = this.angle + Math.PI / 2;
       if (Math.abs(rot) > 0.001) {
-        SpriteRenderer.draw(ctx, 'PLAYER_MISSILE', this.position.x, this.position.y, {
+        SpriteRenderer.draw(ctx, spriteId, this.position.x, this.position.y, {
           rotation: rot,
         });
       } else {
-        SpriteRenderer.draw(ctx, 'PLAYER_MISSILE', this.position.x, this.position.y);
+        SpriteRenderer.draw(ctx, spriteId, this.position.x, this.position.y);
       }
     } else {
       const spriteId = this.type === 'ENEMY_FAST_BEAM' ? 'ENEMY_FAST_BEAM' : 'ENEMY_BULLET';
@@ -243,7 +250,8 @@ export interface BulletManagerOptions {
 export class BulletManager {
   private bulletPool: ObjectPool<Bullet>;
   private nextBulletId: number = 1;
-  private activePlayerBulletCount: number = 0;
+  private activeP1BulletCount: number = 0;
+  private activeP2BulletCount: number = 0;
   private activeDroneBulletCount: number = 0;
   private activeEnemyBulletCount: number = 0;
 
@@ -273,9 +281,14 @@ export class BulletManager {
 
   /**
    * Returns current count of active player missiles on screen.
+   * Defaults to P1 count for 100% backward compatibility.
    */
-  public getPlayerBulletCount(): number {
-    return this.activePlayerBulletCount;
+  public getPlayerBulletCount(playerId: PlayerId = 'p1'): number {
+    return playerId === 'p2' ? this.activeP2BulletCount : this.activeP1BulletCount;
+  }
+
+  public getActivePlayerBulletCount(playerId: PlayerId = 'p1'): number {
+    return this.getPlayerBulletCount(playerId);
   }
 
   /**
@@ -297,9 +310,27 @@ export class BulletManager {
   /**
    * Determines if player is permitted to fire given current on-screen quota.
    */
-  public canPlayerFire(isDual: boolean, maxQuota?: number): boolean {
+  public canPlayerFire(
+    isDualOrPlayerId: boolean | PlayerId = false,
+    maxQuotaOrDual?: number | boolean,
+    playerId: PlayerId = 'p1'
+  ): boolean {
+    let isDual = false;
+    let maxQuota: number | undefined;
+    let targetPlayerId: PlayerId = 'p1';
+
+    if (typeof isDualOrPlayerId === 'string') {
+      targetPlayerId = isDualOrPlayerId;
+      isDual = typeof maxQuotaOrDual === 'boolean' ? maxQuotaOrDual : false;
+    } else {
+      isDual = isDualOrPlayerId;
+      if (typeof maxQuotaOrDual === 'number') maxQuota = maxQuotaOrDual;
+      targetPlayerId = playerId;
+    }
+
     const quota = maxQuota !== undefined ? maxQuota : this.getPlayerMaxQuota(isDual);
-    return this.activePlayerBulletCount < quota;
+    const count = this.getPlayerBulletCount(targetPlayerId);
+    return count < quota;
   }
 
   // ==========================================================================
@@ -317,10 +348,12 @@ export class BulletManager {
     speed: number = BULLET_CONFIG.PLAYER_SPEED,
     vx: number = 0,
     vy?: number,
-    maxQuota?: number
+    maxQuota?: number,
+    playerId: PlayerId = 'p1'
   ): Bullet | null {
     const quota = maxQuota !== undefined ? maxQuota : this.getPlayerMaxQuota(isDual);
-    if (this.activePlayerBulletCount >= quota) {
+    const currentCount = this.getPlayerBulletCount(playerId);
+    if (currentCount >= quota) {
       return null;
     }
 
@@ -328,8 +361,12 @@ export class BulletManager {
     if (!bullet) return null;
 
     const actualVy = vy !== undefined ? vy : -Math.abs(speed);
-    bullet.init(x, y, vx, actualVy, 'PLAYER', 'PLAYER_MISSILE');
-    this.activePlayerBulletCount++;
+    bullet.init(x, y, vx, actualVy, 'PLAYER', 'PLAYER_MISSILE', playerId);
+    if (playerId === 'p2') {
+      this.activeP2BulletCount++;
+    } else {
+      this.activeP1BulletCount++;
+    }
 
     if (this.callbacks.onPlayerFire) {
       this.callbacks.onPlayerFire(bullet);
@@ -346,18 +383,24 @@ export class BulletManager {
     y: number,
     vx: number,
     vy: number,
-    maxQuota?: number
+    maxQuota?: number,
+    playerId: PlayerId = 'p1'
   ): Bullet | null {
     const quota = maxQuota !== undefined ? maxQuota : BULLET_CONFIG.PLAYER_SINGLE_MAX_BULLETS;
-    if (this.activePlayerBulletCount >= quota) {
+    const currentCount = this.getPlayerBulletCount(playerId);
+    if (currentCount >= quota) {
       return null;
     }
 
     const bullet = this.bulletPool.acquire();
     if (!bullet) return null;
 
-    bullet.init(x, y, vx, vy, 'PLAYER', 'PLAYER_MISSILE');
-    this.activePlayerBulletCount++;
+    bullet.init(x, y, vx, vy, 'PLAYER', 'PLAYER_MISSILE', playerId);
+    if (playerId === 'p2') {
+      this.activeP2BulletCount++;
+    } else {
+      this.activeP1BulletCount++;
+    }
 
     if (this.callbacks.onPlayerFire) {
       this.callbacks.onPlayerFire(bullet);
@@ -431,19 +474,21 @@ export class BulletManager {
     centerX: number,
     y: number,
     offset: number = BULLET_CONFIG.DUAL_GUN_OFFSET_X,
-    speed: number = BULLET_CONFIG.PLAYER_SPEED
+    speed: number = BULLET_CONFIG.PLAYER_SPEED,
+    playerId: PlayerId = 'p1'
   ): Bullet[] {
     const spawned: Bullet[] = [];
 
     // Requires room for 2 missiles
-    if (this.activePlayerBulletCount > BULLET_CONFIG.PLAYER_DUAL_MAX_BULLETS - 2) {
+    const currentCount = this.getPlayerBulletCount(playerId);
+    if (currentCount > BULLET_CONFIG.PLAYER_DUAL_MAX_BULLETS - 2) {
       return spawned;
     }
 
-    const left = this.firePlayerBullet(centerX - offset, y, true, speed);
+    const left = this.firePlayerBullet(centerX - offset, y, true, speed, 0, undefined, undefined, playerId);
     if (left) spawned.push(left);
 
-    const right = this.firePlayerBullet(centerX + offset, y, true, speed);
+    const right = this.firePlayerBullet(centerX + offset, y, true, speed, 0, undefined, undefined, playerId);
     if (right) spawned.push(right);
 
     return spawned;
@@ -522,9 +567,11 @@ export class BulletManager {
   public recycle(bullet: Bullet): boolean {
     if (!bullet.active) return false;
 
-    if (bullet.owner === 'PLAYER') {
-      this.activePlayerBulletCount = Math.max(0, this.activePlayerBulletCount - 1);
-    } else if ((bullet.owner as string) === 'DRONE') {
+    if (bullet.ownerId === 'p2') {
+      this.activeP2BulletCount = Math.max(0, this.activeP2BulletCount - 1);
+    } else if (bullet.ownerId === 'p1' || bullet.owner === 'PLAYER') {
+      this.activeP1BulletCount = Math.max(0, this.activeP1BulletCount - 1);
+    } else if (bullet.ownerId === 'drone' || (bullet.owner as string) === 'DRONE') {
       this.activeDroneBulletCount = Math.max(0, this.activeDroneBulletCount - 1);
     } else {
       this.activeEnemyBulletCount = Math.max(0, this.activeEnemyBulletCount - 1);
@@ -544,7 +591,8 @@ export class BulletManager {
    */
   public clear(): void {
     this.bulletPool.clear();
-    this.activePlayerBulletCount = 0;
+    this.activeP1BulletCount = 0;
+    this.activeP2BulletCount = 0;
     this.activeDroneBulletCount = 0;
     this.activeEnemyBulletCount = 0;
   }
@@ -652,5 +700,19 @@ export class BulletManager {
    */
   public getPool(): ObjectPool<Bullet> {
     return this.bulletPool;
+  }
+
+  /**
+   * Returns current pre-allocated capacity of the projectile ObjectPool.
+   */
+  public getPoolCapacity(): number {
+    return this.bulletPool.getCapacity();
+  }
+
+  /**
+   * Deactivates and recycles a bullet entity.
+   */
+  public deactivateBullet(bullet: Bullet): boolean {
+    return this.recycle(bullet);
   }
 }

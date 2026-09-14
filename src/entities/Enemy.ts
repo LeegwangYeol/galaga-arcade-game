@@ -11,7 +11,7 @@
  */
 
 import { SpriteRenderer } from '../renderer/SpriteRenderer';
-import { EnemyType, EnemyState, type StageTier, type EnemyDamageResult } from '../types';
+import { EnemyType, EnemyState, type StageTier, type EnemyDamageResult, type PlayerId } from '../types';
 import type { Poolable, Rect } from '../types';
 import type { CompositeBezierPath } from '../math/Bezier';
 
@@ -100,6 +100,7 @@ export class Enemy implements Poolable {
   public fireCooldownTimer: number = 0;
   public shotsRemainingInDive: number = 1;
   public isChallenging: boolean = false;
+  public originalOwnerId?: PlayerId;
 
   // M18 Glitch & Anomalous Kinematics
   public isGlitched: boolean = false;
@@ -282,6 +283,7 @@ export class Enemy implements Poolable {
     this.kineticInversionTimer = 0;
     this.canSpawnMirageClone = false;
     this.isTractorDiving = false;
+    this.originalOwnerId = undefined;
   }
 
   // ==========================================================================

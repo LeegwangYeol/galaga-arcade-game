@@ -453,6 +453,37 @@ export class ParticleSystem {
   }
 
   /**
+   * Preset 6.5: Co-op Life Donation Arc & Revive Sparkles
+   */
+  public spawnReviveSparkles(fromX: number, fromY: number, toX: number, toY: number, count: number = 24): void {
+    for (let i = 0; i < count; i++) {
+      const p = this.pool.acquire();
+      if (!p) break;
+
+      const progress = i / count;
+      const x = fromX + (toX - fromX) * progress;
+      const y = fromY + (toY - fromY) * progress;
+
+      p.active = true;
+      p.type = 'SPARK';
+      p.x = x + (Math.random() - 0.5) * 8;
+      p.y = y + (Math.random() - 0.5) * 8;
+      p.vx = (Math.random() - 0.5) * 30;
+      p.vy = -30 - Math.random() * 40;
+      p.ax = 0;
+      p.ay = 10;
+      p.drag = 0.95;
+      p.color = Math.random() > 0.5 ? PALETTE.YELLOW : PALETTE.GREEN;
+      p.size = 2;
+      p.width = 2;
+      p.height = 2;
+      p.life = 0;
+      p.maxLife = 0.5 + Math.random() * 0.3;
+      p.alphaCurve = 'linear';
+    }
+  }
+
+  /**
    * Preset 7: Nova Barrage Missile Impact Burst & Shockwave Ring
    */
   public spawnNovaImpact(x: number, y: number, count: number = 14): void {

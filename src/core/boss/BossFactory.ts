@@ -35,10 +35,16 @@ export class BossFactory {
         return null;
     }
 
-    if (boss && game && game.dynamicDifficultyManager) {
-      const mult = game.dynamicDifficultyManager.getBossHealthMultiplier();
-      if (mult !== 1.0) {
-        boss.maxHealth = Math.round(boss.maxHealth * mult);
+    if (boss && game) {
+      const isCoop = typeof game.isCoop === 'function' ? game.isCoop() : false;
+      const coopMult = isCoop ? 1.60 : 1.00;
+      const ddaMult = game.dynamicDifficultyManager
+        ? game.dynamicDifficultyManager.getBossHealthMultiplier()
+        : 1.0;
+      const totalMult = coopMult * ddaMult;
+
+      if (totalMult !== 1.0) {
+        boss.maxHealth = Math.round(boss.maxHealth * totalMult);
         boss.health = boss.maxHealth;
       }
     }

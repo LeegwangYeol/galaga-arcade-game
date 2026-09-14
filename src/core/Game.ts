@@ -41,7 +41,8 @@ import { HUD } from '../ui/HUD';
 import { BottomDashboard, type DashboardState, type ActivePowerUpTelemetry } from '../ui/BottomDashboard';
 import { Screens, type ScreenRenderContext } from '../ui/Screens';
 import { EnemyType, EnemyState } from '../types';
-import type { GameState, IGameEngine, Rect, VirtualResolution } from '../types';
+import type { GameState, IGameEngine, Rect, VirtualResolution, PlayerId } from '../types';
+import { PlayerManager } from '../systems/PlayerManager';
 
 function checkAABB(a: Rect, b: Rect): boolean {
   return (
@@ -74,7 +75,37 @@ export class Game implements IGameEngine {
   public gameLoop: GameLoop;
   public starfield: Starfield;
   public inputHandler: InputHandler;
-  public player: Player;
+  public playerManager!: PlayerManager;
+
+  public get player(): Player {
+    return this.playerManager.getPlayer('p1')!;
+  }
+  public set player(p: Player) {
+    this.setupPlayerCallbacks(p);
+    this.playerManager.setPlayer('p1', p);
+  }
+  public get players(): Player[] {
+    return this.playerManager.getPlayers();
+  }
+  public getPlayer(id?: 'p1'): Player;
+  public getPlayer(id: 'p2'): Player | undefined;
+  public getPlayer(id?: PlayerId): Player | undefined;
+  public getPlayer(id: PlayerId = 'p1'): Player | undefined {
+    if (id === 'p1') {
+      return this.playerManager.getPlayer('p1')!;
+    }
+    return this.playerManager.getPlayer(id);
+  }
+
+  public isCoop(): boolean {
+    return this.playerManager.isCoop();
+  }
+  public setCoopMode(enabled: boolean): void {
+    const mode = enabled ? 'coop' : 'single';
+    this.playerManager.setMode(mode);
+    this.inputHandler.setMode(mode);
+  }
+
   public bulletManager: BulletManager;
   public formationManager: FormationManager;
   public tractorBeam: TractorBeam;
@@ -309,119 +340,29 @@ export class Game implements IGameEngine {
     // 7. Initialize Player & Bullet Subsystems
     this.bulletManager = new BulletManager({
       onBulletRecycle: () => {
-        if (this.player) {
-          this.player.activeMissileCount = this.bulletManager.getPlayerBulletCount();
+        const p1 = this.playerManager?.getPlayer('p1');
+        if (p1) {
+          p1.activeMissileCount = this.bulletManager.getPlayerBulletCount('p1');
+        }
+        const p2 = this.playerManager?.getPlayer('p2');
+        if (p2) {
+          p2.activeMissileCount = this.bulletManager.getPlayerBulletCount('p2');
         }
       },
     });
 
-    this.player = new Player({
-      x: 112,
-      y: Player.BASELINE_Y,
-      lives: this.scoreManager.lives,
-      game: this,
+    this.playerManager = new PlayerManager(this, 'single', (player) => {
+      this.setupPlayerCallbacks(player);
     });
 
     // Wire extra life callback to add life to player and trigger audio
-    this.scoreManager.onExtraLife((count: number) => {
-      if (this.player) {
-        this.player.lives += count;
+    this.scoreManager.onExtraLife((count: number, playerId?: PlayerId) => {
+      const p = this.getPlayer(playerId ?? 'p1');
+      if (p) {
+        p.lives += count;
       }
       MusicJingles.playDockingJingle();
     });
-
-    this.player.onFire = (spawns) => {
-      const quota = this.player.getMaxMissileQuota();
-      for (const s of spawns) {
-        this.bulletManager.firePlayerBullet(
-          s.x,
-          s.y,
-          this.player.isDual,
-          Math.abs(s.vy),
-          s.vx,
-          s.vy,
-          quota
-        );
-        this.scoreManager.recordShotFired(1);
-        this.dynamicDifficultyManager?.recordShotFired(1);
-      }
-      this.player.activeMissileCount = this.bulletManager.getPlayerBulletCount();
-
-      // Audio Trigger: Player laser fire
-      if (this.player.isDual) {
-        this.soundSynth.playLaserDual();
-      } else {
-        this.soundSynth.playLaser();
-      }
-    };
-
-    this.player.onShieldDeflect = (x, y) => {
-      this.soundSynth.playBossHit();
-      this.particleSystem.spawnHitSparks(x, y);
-      this.dynamicDifficultyManager?.recordPlayerDamage(false);
-    };
-
-    this.player.onReflectionDeflect = (x, y) => {
-      this.soundSynth.playReflectionDeflect();
-      this.particleSystem.spawnHitSparks(x, y);
-      this.dynamicDifficultyManager?.recordPlayerDamage(false);
-
-      let targetX = x;
-      let targetY = y - 100;
-      let minDistSq = Infinity;
-
-      for (const enemy of this.formationManager.enemies) {
-        if (enemy.active) {
-          const dx = enemy.x - x;
-          const dy = enemy.y - y;
-          const dSq = dx * dx + dy * dy;
-          if (dSq < minDistSq) {
-            minDistSq = dSq;
-            targetX = enemy.x;
-            targetY = enemy.y;
-          }
-        }
-      }
-
-      if (this.bossManager?.activeBoss?.active) {
-        const boss = this.bossManager.activeBoss;
-        const dx = boss.x - x;
-        const dy = boss.y - y;
-        const dSq = dx * dx + dy * dy;
-        if (dSq < minDistSq) {
-          targetX = boss.x;
-          targetY = boss.y;
-        }
-      }
-
-      this.bulletManager.fireReflectionMissile(x, y - 6, targetX, targetY, 600);
-    };
-
-    this.player.onPlasmaBeamTick = (x, y, isDual) => {
-      this.resolvePlasmaBeamDamage(x, y, isDual);
-    };
-
-    this.player.onExplode = (_x, _y, isPartial) => {
-      this.dynamicDifficultyManager?.recordPlayerDamage(!isPartial);
-      if (!isPartial) {
-        this.powerUpManager?.onPlayerDeath();
-      }
-    };
-
-    this.player.onGameOver = () => {
-      this.setState('GAME_OVER');
-    };
-
-    this.player.onCapturedComplete = (targetX, targetY) => {
-      this.handlePlayerCaptured(targetX, targetY);
-      this.powerUpManager?.onPlayerDeath();
-    };
-
-    this.player.onDocked = () => {
-      this.scoreManager.addScore(1000);
-      MusicJingles.playDockingJingle();
-      this.particleSystem.spawnDockingSparkles(this.player.x, this.player.y);
-    };
 
     // 8. Initialize TractorBeam Subsystem
     this.tractorBeam = new TractorBeam();
@@ -435,6 +376,8 @@ export class Game implements IGameEngine {
     // 9. Initialize FormationManager Subsystem
     this.formationManager = new FormationManager({
       dynamicDifficultyManager: this.dynamicDifficultyManager,
+      isCoop: () => this.isCoop(),
+      playerManager: this.playerManager,
       onEnemyFire: (req) => {
         this.bulletManager.fireEnemyBullet(
           req.originX,
@@ -463,6 +406,7 @@ export class Game implements IGameEngine {
         if (this.specialMovesManager) {
           this.specialMovesManager.onStageClear();
         }
+        this.playerManager.onStageClear();
         if (this.isChallengingStage(this.stage)) {
           // Process challenging stage bonus
           this.scoreManager.addChallengingStageBonus(this.scoreManager.challengingHits);
@@ -515,6 +459,18 @@ export class Game implements IGameEngine {
       { type: PowerUpType.ANTIMATTER_PLASMA, id: 'plasma', label: 'PLASMA', maxDuration: 7, primaryColor: '#FFFF00', accentColor: '#00E700', remainingTime: 0, progress: 0, isActive: false },
     ];
 
+    const createPlayerSlots = () => [
+      { type: PowerUpType.RAPID_FIRE, id: 'rapid', label: 'RAPID', maxDuration: 15, primaryColor: '#FFCC00', accentColor: '#FF6600', remainingTime: 0, progress: 0, isActive: false },
+      { type: PowerUpType.KINETIC_SHIELD, id: 'shield', label: 'SHIELD', maxDuration: 1, primaryColor: '#00FFFF', accentColor: '#0088FF', remainingTime: 0, progress: 0, isActive: false },
+      { type: PowerUpType.SCATTER_SHOT, id: 'scatter', label: 'SCATTER', maxDuration: 15, primaryColor: '#39FF14', accentColor: '#00AA00', remainingTime: 0, progress: 0, isActive: false },
+      { type: PowerUpType.ENGINE_BOOSTER, id: 'engine', label: 'SPEED', maxDuration: 15, primaryColor: '#FF3366', accentColor: '#CC0033', remainingTime: 0, progress: 0, isActive: false },
+      { type: PowerUpType.CHRONO_FIELD, id: 'chrono', label: 'CHRONO', maxDuration: 6, primaryColor: '#00FFFF', accentColor: '#FFBF00', remainingTime: 0, progress: 0, isActive: false },
+      { type: PowerUpType.REFLECTION_SHIELD, id: 'reflect', label: 'REFLECT', maxDuration: 12, primaryColor: '#5B93FF', accentColor: '#00FFFF', remainingTime: 0, progress: 0, isActive: false },
+      { type: PowerUpType.EMP_COLLECTOR, id: 'collector', label: 'COLLECTOR', maxDuration: 5, primaryColor: '#BB33FF', accentColor: '#FF007F', remainingTime: 0, progress: 0, isActive: false },
+      { type: PowerUpType.PHASE_DRIVE, id: 'phase', label: 'PHASE', maxDuration: 15, primaryColor: '#FF007F', accentColor: '#00FFFF', remainingTime: 0, progress: 0, isActive: false },
+      { type: PowerUpType.ANTIMATTER_PLASMA, id: 'plasma', label: 'PLASMA', maxDuration: 7, primaryColor: '#FFFF00', accentColor: '#00E700', remainingTime: 0, progress: 0, isActive: false },
+    ];
+
     this._dashboardState = {
       score: 0,
       highScore: 20000,
@@ -534,6 +490,31 @@ export class Game implements IGameEngine {
       isFullscreen: false,
       isPaused: false,
       canPause: false,
+      isCoop: false,
+      p1: {
+        score: 0,
+        lives: 3,
+        combo: 1,
+        specialEnergy: 0,
+        specialReady: false,
+        selectedSpecial: 'NOVA',
+        state: 'normal',
+        reviveTimer: 0,
+        canDonateLife: false,
+        activePowerUps: createPlayerSlots(),
+      },
+      p2: {
+        score: 0,
+        lives: 3,
+        combo: 1,
+        specialEnergy: 0,
+        specialReady: false,
+        selectedSpecial: 'CHRONO',
+        state: 'normal',
+        reviveTimer: 0,
+        canDonateLife: false,
+        activePowerUps: createPlayerSlots(),
+      },
     };
 
     this.bottomDashboard = new BottomDashboard({
@@ -837,7 +818,7 @@ export class Game implements IGameEngine {
     }
     this.scoreManager.reset(3, 1);
     this.bulletManager.clear();
-    this.player.reset(112, Player.BASELINE_Y, 3);
+    this.playerManager.reset();
     this.formationManager.spawnStage(1);
     this.tractorBeam.reset();
     this.particleSystem.clear();
@@ -910,14 +891,18 @@ export class Game implements IGameEngine {
     this.particleSystem.update(dt);
 
     // Update projectiles (player missiles move normally, enemy bullets freeze if enemyDt == 0, slowed if in Chrono Field)
-    const chronoField = this.player.hasChronoField
-      ? { x: this.player.x, y: this.player.y, radiusSq: 14400, slowFactor: 0.40 }
-      : undefined;
+    const p1Chrono = this.playerManager.getPlayer('p1')?.hasChronoField;
+    const p2Chrono = this.playerManager.getPlayer('p2')?.hasChronoField;
+    const chronoField = p1Chrono
+      ? { x: this.playerManager.getPlayer('p1')!.x, y: this.playerManager.getPlayer('p1')!.y, radiusSq: 14400, slowFactor: 0.40 }
+      : (p2Chrono
+        ? { x: this.playerManager.getPlayer('p2')!.x, y: this.playerManager.getPlayer('p2')!.y, radiusSq: 14400, slowFactor: 0.40 }
+        : undefined);
     this.bulletManager.update(dt, enemyDt, chronoField);
-    this.player.activeMissileCount = this.bulletManager.getPlayerBulletCount();
-
-    // Sync score & lives with player
-    this.player.score = this.scoreManager.score;
+    for (const p of this.playerManager.getPlayers()) {
+      p.activeMissileCount = this.bulletManager.getPlayerBulletCount(p.id);
+      p.score = this.scoreManager.getScore(p.id);
+    }
 
     // Update Dynamic Difficulty Adjustment (DDA) Engine
     if (this.dynamicDifficultyManager) {
@@ -956,6 +941,24 @@ export class Game implements IGameEngine {
   }
 
   private updateTitle(_dt: number): void {
+    if (this.inputHandler.consumeAction('select1P' as any)) {
+      this.setCoopMode(false);
+    } else if (this.inputHandler.consumeAction('select2P' as any)) {
+      this.setCoopMode(true);
+    }
+
+    const pointer = this.inputHandler.consumePointerTap();
+    if (pointer) {
+      if (pointer.y >= 84 && pointer.y < 98) {
+        this.setCoopMode(false);
+      } else if (pointer.y >= 98 && pointer.y <= 112) {
+        this.setCoopMode(true);
+      } else if (pointer.y > 112) {
+        this.startGame();
+        return;
+      }
+    }
+
     if (
       this.inputHandler.consumeAction('fire') ||
       this.inputHandler.consumeAction('restart') ||
@@ -969,7 +972,9 @@ export class Game implements IGameEngine {
   private updateStageIntro(_dt: number): void {
     // 2.2 seconds intro animation before battle begins
     if (this.stateTimer >= 2.2) {
-      this.player.respawn();
+      for (const p of this.playerManager.getPlayers()) {
+        p.respawn();
+      }
       if (this.formationManager.enemies.length === 0) {
         this.formationManager.spawnStage(this.stage);
       }
@@ -1001,10 +1006,29 @@ export class Game implements IGameEngine {
       }
     }
 
-    const input = this.inputHandler.getState();
+    // Handle Co-op Life Donation Inputs
+    if (this.inputHandler.consumeAction('donateLife' as any, 'p1')) {
+      if (!this.playerManager.donateLife('p1')) {
+        this.playerManager.donateLife('p2');
+      }
+    }
+    if (this.inputHandler.consumeAction('donateLife' as any, 'p2')) {
+      if (!this.playerManager.donateLife('p2')) {
+        this.playerManager.donateLife('p1');
+      }
+    }
+
+    const inputs = this.isCoop()
+      ? this.inputHandler.getDualInputState()
+      : this.inputHandler.getState();
     const prevPlayerX = this.player.x;
 
-    this.player.update(dt, input);
+    this.playerManager.update(dt, inputs);
+
+    if (this.isCoop() && this.playerManager.areAllPlayersDead()) {
+      this.setState('GAME_OVER');
+      return;
+    }
 
     // Calculate effective enemy delta-time (frozen if Chrono Freeze is active)
     const isFrozen = this.specialMovesManager ? this.specialMovesManager.isChronoFreezeActive() : false;
@@ -1026,7 +1050,7 @@ export class Game implements IGameEngine {
       }
     }
 
-    this.powerUpManager.update(dt, this.player);
+    this.powerUpManager.update(dt, this.playerManager.getPlayers());
     this.formationManager.update(enemyDt, this.player.x, this.player.y, this.player.isDual);
     this.tractorBeam.update(enemyDt);
 
@@ -1057,7 +1081,107 @@ export class Game implements IGameEngine {
     this.resolveCollisions();
   }
 
-  public handlePlayerCaptured(targetX: number, targetY: number): void {
+  public setupPlayerCallbacks(player: Player): void {
+    const pId = player.id;
+
+    player.onFire = (spawns) => {
+      const quota = player.getMaxMissileQuota();
+      for (const s of spawns) {
+        this.bulletManager.firePlayerBullet(
+          s.x,
+          s.y,
+          player.isDual,
+          Math.abs(s.vy),
+          s.vx,
+          s.vy,
+          quota,
+          pId
+        );
+        this.scoreManager.recordShotFired(1, pId);
+        this.dynamicDifficultyManager?.recordShotFired(1);
+      }
+      player.activeMissileCount = this.bulletManager.getPlayerBulletCount(pId);
+
+      // Audio Trigger: Player laser fire
+      if (player.isDual) {
+        this.soundSynth.playLaserDual();
+      } else {
+        this.soundSynth.playLaser();
+      }
+    };
+
+    player.onShieldDeflect = (x, y) => {
+      this.soundSynth.playBossHit();
+      this.particleSystem.spawnHitSparks(x, y);
+      this.dynamicDifficultyManager?.recordPlayerDamage(false);
+    };
+
+    player.onReflectionDeflect = (x, y) => {
+      this.soundSynth.playReflectionDeflect();
+      this.particleSystem.spawnHitSparks(x, y);
+      this.dynamicDifficultyManager?.recordPlayerDamage(false);
+
+      let targetX = x;
+      let targetY = y - 100;
+      let minDistSq = Infinity;
+
+      for (const enemy of this.formationManager.enemies) {
+        if (enemy.active) {
+          const dx = enemy.x - x;
+          const dy = enemy.y - y;
+          const dSq = dx * dx + dy * dy;
+          if (dSq < minDistSq) {
+            minDistSq = dSq;
+            targetX = enemy.x;
+            targetY = enemy.y;
+          }
+        }
+      }
+
+      if (this.bossManager?.activeBoss?.active) {
+        const boss = this.bossManager.activeBoss;
+        const dx = boss.x - x;
+        const dy = boss.y - y;
+        const dSq = dx * dx + dy * dy;
+        if (dSq < minDistSq) {
+          targetX = boss.x;
+          targetY = boss.y;
+        }
+      }
+
+      this.bulletManager.fireReflectionMissile(x, y - 6, targetX, targetY, 600);
+    };
+
+    player.onPlasmaBeamTick = (x, y, isDual) => {
+      this.resolvePlasmaBeamDamage(x, y, isDual, pId);
+    };
+
+    player.onExplode = (_x, _y, isPartial) => {
+      this.dynamicDifficultyManager?.recordPlayerDamage(!isPartial);
+      if (!isPartial) {
+        this.powerUpManager?.onPlayerDeath(player);
+      }
+    };
+
+    player.onGameOver = () => {
+      if (this.playerManager.areAllPlayersDead()) {
+        this.setState('GAME_OVER');
+      }
+    };
+
+    player.onCapturedComplete = (targetX, targetY) => {
+      this.handlePlayerCaptured(targetX, targetY, player);
+      this.powerUpManager?.onPlayerDeath(player);
+    };
+
+    player.onDocked = () => {
+      this.scoreManager.addScore(1000, pId);
+      MusicJingles.playDockingJingle();
+      this.particleSystem.spawnDockingSparkles(player.x, player.y);
+    };
+  }
+
+  public handlePlayerCaptured(targetX: number, targetY: number, _capturedPlayer?: Player): void {
     const boss = this.tractorBeam.getBoss();
     if (boss && boss.active) {
       const escort = new Enemy({
@@ -1069,6 +1193,9 @@ export class Game implements IGameEngine {
       escort.state = EnemyState.IN_FORMATION;
       escort.escortBoss = boss;
       escort.escortBossId = boss.id;
+      if (_capturedPlayer) {
+        escort.originalOwnerId = _capturedPlayer.id;
+      }
       boss.hasCapturedFighter = true;
       boss.capturedFighterEnemy = escort;
       boss.escortCount = 1;
@@ -1102,6 +1229,7 @@ export class Game implements IGameEngine {
       if (this.powerUpManager) {
         this.powerUpManager.reset();
       }
+      this.playerManager.onStageClear();
       this.formationManager.spawnStage(this.stage);
       this.tractorBeam.reset();
       this.soundSynth.stopTractorBeam();
@@ -1153,12 +1281,13 @@ export class Game implements IGameEngine {
         const enemyBox = enemy.getHitbox();
 
         if (checkAABB(bulletBox, enemyBox)) {
+          const ownerId: PlayerId = (bullet.ownerId === 'p2' ? 'p2' : 'p1') as PlayerId;
           this.bulletManager.recycle(bullet);
-          this.scoreManager.recordShotHit(1);
+          this.scoreManager.recordShotHit(1, ownerId);
           this.dynamicDifficultyManager?.recordShotHit(1);
 
           if (this.state === 'CHALLENGING_STAGE') {
-            this.scoreManager.recordChallengingHit(1);
+            this.scoreManager.recordChallengingHit(1, ownerId);
           }
 
           // Case 0: Shooting Epic Multi-Phase Boss
@@ -1182,7 +1311,7 @@ export class Game implements IGameEngine {
             if (damageResult.destroyed) {
               this.soundSynth.playExplosion('small');
               this.particleSystem.spawnHitSparks(enemy.x, enemy.y);
-              this.scoreManager.addScore(damageResult.points);
+              this.scoreManager.addScore(damageResult.points, ownerId);
               if (this.specialMovesManager) {
                 this.specialMovesManager.addEnergy(3);
                 this.specialMovesManager.spawnSpark(enemy.x, enemy.y);
@@ -1215,19 +1344,53 @@ export class Game implements IGameEngine {
               // Check for attached Captured Fighter Escort
               if (enemy.hasCapturedFighter && enemy.capturedFighterEnemy) {
                 const capturedFighter = enemy.capturedFighterEnemy;
+                const captiveOwnerId = capturedFighter.originalOwnerId ?? 'p1';
+                const captivePlayer = this.playerManager.getPlayer(captiveOwnerId);
+                const killerId: PlayerId = ownerId ?? 'p1';
+                const killerPlayer = this.playerManager.getPlayer(killerId);
 
                 if (isDiving) {
                   // SUCCESSFUL RESCUE FLOW
                   capturedFighter.active = false;
                   capturedFighter.state = EnemyState.INACTIVE;
-                  this.player.startRescue(enemy.x, enemy.y);
-                  this.scoreManager.addScore(1000); // Rescue bonus
+                  this.scoreManager.addScore(1000, killerId); // Rescue bonus to rescuer
+
+                  // Case A: Captive player was Downed / Captured (0 lives, revive_pending, or captured)
+                  if (
+                    captivePlayer &&
+                    (captivePlayer.lives === 0 ||
+                      captivePlayer.state === 'revive_pending' ||
+                      captivePlayer.state === 'captured' ||
+                      captivePlayer.state === 'eliminated')
+                  ) {
+                    captivePlayer.lives = 1;
+                    this.scoreManager.setLives(1, captiveOwnerId);
+                    captivePlayer.startRescue(enemy.x, enemy.y);
+                    captivePlayer.onDocked = () => {
+                      captivePlayer.state = 'normal';
+                      captivePlayer.invulnerableTimer = 2.0;
+                      this.scoreManager.addScore(1000, captiveOwnerId);
+                      MusicJingles.playDockingJingle();
+                      this.particleSystem.spawnDockingSparkles(captivePlayer.x, captivePlayer.y);
+                    };
+                  }
+                  // Case B: Rescuer (killer) is alive and not dual -> Killer docks to form Dual Fighter!
+                  else if (killerPlayer && killerPlayer.isAlive() && !killerPlayer.isDual) {
+                    killerPlayer.startRescue(enemy.x, enemy.y);
+                  }
+                  // Case C: Captive player is alive on screen and not dual
+                  else if (captivePlayer && captivePlayer.isAlive() && !captivePlayer.isDual) {
+                    captivePlayer.startRescue(enemy.x, enemy.y);
+                  }
+
+                  MusicJingles.playDockingJingle();
                 } else {
                   // TURNCOAT DIVERGENCE FLOW (Destroyed in formation)
                   capturedFighter.state = EnemyState.CAPTURED_HOSTILE;
                   capturedFighter.escortBoss = null;
                   capturedFighter.escortBossId = null;
-                  this.formationManager.peelOffSolo(capturedFighter, this.player.x);
+                  const target = this.playerManager.getLivingPlayers()[0];
+                  this.formationManager.peelOffSolo(capturedFighter, target ? target.x : this.player.x);
                 }
 
                 enemy.hasCapturedFighter = false;
@@ -1238,12 +1401,14 @@ export class Game implements IGameEngine {
               if (this.tractorBeam.isActive() && this.tractorBeam.getBoss() === enemy) {
                 this.tractorBeam.deactivate(true);
                 this.soundSynth.playTractorBeam(false);
-                if (this.player.state === 'capturing' || (this.player.state as any) === 'CAPTURING') {
-                  this.player.cancelCapture?.();
+                for (const p of this.playerManager.getPlayers()) {
+                  if (p.state === 'capturing' || (p.state as any) === 'CAPTURING') {
+                    p.cancelCapture?.();
+                  }
                 }
               }
 
-              this.scoreManager.addScoreForEnemy(enemy.type, isDiving, enemy.escortCount);
+              this.scoreManager.addScoreForEnemy(enemy.type, isDiving, enemy.escortCount, ownerId);
               this.powerUpManager.spawnDrop(enemy.x, enemy.y, this.stage, enemy.type, isDiving);
             } else {
               // Boss Non-Lethal Armor Deflection Hit
@@ -1261,7 +1426,7 @@ export class Game implements IGameEngine {
             if (damageResult.destroyed) {
               this.soundSynth.playExplosion('small');
               this.particleSystem.spawnSmallAlienExplosion(enemy.x, enemy.y);
-              this.scoreManager.addScoreForCapturedFighter(isDiving);
+              this.scoreManager.addScoreForCapturedFighter(isDiving, ownerId);
               this.powerUpManager.spawnDrop(enemy.x, enemy.y, this.stage, enemy.type, isDiving);
 
               if (this.specialMovesManager) {
@@ -1283,7 +1448,7 @@ export class Game implements IGameEngine {
             if (damageResult.destroyed) {
               this.soundSynth.playExplosion('small');
               this.particleSystem.spawnSmallAlienExplosion(enemy.x, enemy.y);
-              this.scoreManager.addScoreForEnemy(enemy.type, isDiving);
+              this.scoreManager.addScoreForEnemy(enemy.type, isDiving, 0, ownerId);
               this.powerUpManager.spawnDrop(enemy.x, enemy.y, this.stage, enemy.type, isDiving);
 
               if (enemy.canSpawnMirageClone) {
@@ -1337,78 +1502,98 @@ export class Game implements IGameEngine {
     // Check invulnerability against external hazards (including Warp Ram absolute invulnerability)
     const isWarpRamming = this.specialMovesManager ? this.specialMovesManager.isWarpRamActive() : false;
 
-    // 2. Tractor Beam Cone vs Player Ship (Capture Trigger)
+    // 2. Tractor Beam Cone vs Player Ships (Capture Trigger)
     if (this.tractorBeam.isActive() && this.tractorBeam.canCapture()) {
-      const isPlayerVulnerable =
-        !isWarpRamming &&
-        !this.player.isInvulnerable() &&
-        (this.player.state === 'normal' || this.player.state === 'ALIVE') &&
-        !this.player.isDual;
+      for (const p of this.playerManager.getPlayers()) {
+        const isPlayerVulnerable =
+          !isWarpRamming &&
+          !p.isInvulnerable() &&
+          (p.state === 'normal' || p.state === 'ALIVE') &&
+          !p.isDual;
 
-      if (isPlayerVulnerable) {
-        const playerBox = this.player.getHitbox();
-        const inBeam =
-          this.tractorBeam.containsPoint(this.player.x, this.player.y) ||
-          this.tractorBeam.intersectsAABB(playerBox);
+        if (isPlayerVulnerable) {
+          const playerBox = p.getHitbox();
+          const inBeam =
+            this.tractorBeam.containsPoint(p.x, p.y) ||
+            this.tractorBeam.intersectsAABB(playerBox);
 
-        if (inBeam) {
-          const boss = this.tractorBeam.getBoss();
-          if (boss) {
-            this.tractorBeam.startCapture(this.player);
-            this.player.startCapture(boss.x, boss.y);
+          if (inBeam) {
+            const boss = this.tractorBeam.getBoss();
+            if (boss) {
+              this.tractorBeam.startCapture(p);
+              p.startCapture(boss.x, boss.y);
+              break; // Beam captures at most one player at a time
+            }
           }
         }
       }
     }
 
-    // 3. Enemy Bullets vs Player Ship
-    const s = this.player.state;
-    const isPlayerVulnerable =
-      !isWarpRamming &&
-      !this.player.isInvulnerable() &&
-      (s === 'normal' ||
-        s === 'ALIVE' ||
-        s === 'dual' ||
-        s === 'DUAL' ||
-        s === 'docking' ||
-        s === 'DOCKING');
+    // 3. Enemy Bullets vs Player Ships
+    for (const p of this.playerManager.getPlayers()) {
+      const s = p.state;
+      const isPlayerVulnerable =
+        !isWarpRamming &&
+        !p.isInvulnerable() &&
+        (s === 'normal' ||
+          s === 'ALIVE' ||
+          s === 'dual' ||
+          s === 'DUAL' ||
+          s === 'docking' ||
+          s === 'DOCKING');
 
-    if (isPlayerVulnerable) {
-      this.bulletManager.forEachActiveEnemyBullet((bullet) => {
-        if (!bullet.active) return;
+      if (isPlayerVulnerable) {
+        this.bulletManager.forEachActiveEnemyBullet((bullet) => {
+          if (!bullet.active) return;
 
-        const bulletBox = bullet.getSweptHitbox();
-        const hit = this.player.hitTestAndDamage(bulletBox);
+          const bulletBox = bullet.getSweptHitbox();
+          const hit = p.hitTestAndDamage(bulletBox);
 
-        if (hit) {
-          this.bulletManager.recycle(bullet);
-          this.soundSynth.playExplosion('large');
-          this.particleSystem.spawnPlayerExplosion(this.player.x, this.player.y);
-        }
-      });
+          if (hit) {
+            this.bulletManager.recycle(bullet);
+            this.soundSynth.playExplosion('large');
+            this.particleSystem.spawnPlayerExplosion(p.x, p.y);
+          }
+        });
+      }
     }
 
-    // 4. Enemy Craft Collisions vs Player Ship (Kamikaze Dive Impact)
-    if (isPlayerVulnerable) {
-      for (const enemy of livingEnemies) {
-        if (!enemy.active || enemy.state === EnemyState.EXPLODING || enemy.state === EnemyState.INACTIVE) {
-          continue;
-        }
+    // 4. Enemy Craft Collisions vs Player Ships (Kamikaze Dive Impact)
+    for (const p of this.playerManager.getPlayers()) {
+      const s = p.state;
+      const isPlayerVulnerable =
+        !isWarpRamming &&
+        !p.isInvulnerable() &&
+        (s === 'normal' ||
+          s === 'ALIVE' ||
+          s === 'dual' ||
+          s === 'DUAL' ||
+          s === 'docking' ||
+          s === 'DOCKING');
 
-        const enemyBox = enemy.getHitbox();
-        const hit = this.player.hitTestAndDamage(enemyBox);
+      if (isPlayerVulnerable) {
+        for (const enemy of livingEnemies) {
+          if (!enemy.active || enemy.state === EnemyState.EXPLODING || enemy.state === EnemyState.INACTIVE) {
+            continue;
+          }
 
-        if (hit) {
-          enemy.takeDamage(99); // Destroy enemy on direct ship collision
-          this.soundSynth.playExplosion('large');
-          this.particleSystem.spawnPlayerExplosion(this.player.x, this.player.y);
-          break;
+          const enemyBox = enemy.getHitbox();
+          const hit = p.hitTestAndDamage(enemyBox);
+
+          if (hit) {
+            enemy.takeDamage(99); // Destroy enemy on direct ship collision
+            this.soundSynth.playExplosion('large');
+            this.particleSystem.spawnPlayerExplosion(p.x, p.y);
+            break;
+          }
         }
       }
     }
 
-    // 5. Collectible Power-Up Capsules vs Player Ship
-    this.powerUpManager.checkPlayerCollection(this.player);
+    // 5. Collectible Power-Up Capsules vs Player Ships
+    for (const p of this.playerManager.getPlayers()) {
+      this.powerUpManager.checkPlayerCollection(p);
+    }
   }
 
   // ==========================================================================
@@ -1447,6 +1632,11 @@ export class Game implements IGameEngine {
 
     targetCtx.restore();
 
+    // 2.5 Render Touch Guides in Co-op Mode (screen space, fixed)
+    if (this.isCoop() && (this.state === 'PLAYING' || this.state === 'CHALLENGING_STAGE' || this.state === 'PAUSED' || this.state === 'STAGE_INTRO')) {
+      this.inputHandler.renderTouchGuides(targetCtx);
+    }
+
     const hudState = {
       score: this.scoreManager.score,
       highScore: this.scoreManager.highScore,
@@ -1480,6 +1670,9 @@ export class Game implements IGameEngine {
       hits: this.scoreManager.shotsHit,
       challengingHits: this.scoreManager.challengingHits,
       isDual: this.player ? this.player.isDual : false,
+      isCoop: this.isCoop(),
+      p1Score: this.playerManager.getPlayer('p1')?.score ?? this.scoreManager.score,
+      p2Score: this.playerManager.getPlayer('p2')?.score ?? 0,
     };
 
     // 4. Render Active Screen State Overlay (z-index: 7, fixed in screen space)
@@ -1535,8 +1728,8 @@ export class Game implements IGameEngine {
     // 4. Render Particle Explosions & Sparkles (underneath HUD, over entities)
     this.particleSystem.render(ctx);
 
-    // 5. Render Player Ship & Rescued Docking Ship
-    this.player.render(ctx);
+    // 5. Render Player Ships & Rescued Docking Ships
+    this.playerManager.render(ctx);
 
     // 5.5 Render Crisis Event Visual Overlays & Warning Banner
     this.crisisEventManager.render(ctx);
@@ -1599,9 +1792,7 @@ export class Game implements IGameEngine {
     return this.gameLoop;
   }
 
-  public getPlayer(): Player {
-    return this.player;
-  }
+
 
   public getBulletManager(): BulletManager {
     return this.bulletManager;
@@ -1651,7 +1842,7 @@ export class Game implements IGameEngine {
     return this.specialMovesManager;
   }
 
-  private resolvePlasmaBeamDamage(x: number, y: number, isDual: boolean): void {
+  private resolvePlasmaBeamDamage(x: number, y: number, isDual: boolean, playerId: PlayerId = 'p1'): void {
     const beams = isDual ? [x - 8, x + 8] : [x];
     const halfWidth = 6;
 
@@ -1663,7 +1854,7 @@ export class Game implements IGameEngine {
           if (damageResult.destroyed) {
             this.soundSynth.playExplosion('small');
             this.particleSystem.spawnSmallAlienExplosion(enemy.x, enemy.y);
-            this.scoreManager.addScoreForEnemy(enemy.type, true);
+            this.scoreManager.addScoreForEnemy(enemy.type, true, 0, playerId);
             this.powerUpManager.spawnDrop(enemy.x, enemy.y, this.stage, enemy.type, true);
             if (this.specialMovesManager) {
               this.specialMovesManager.addEnergy(2);
@@ -1685,6 +1876,7 @@ export class Game implements IGameEngine {
           if (damageResult.destroyed) {
             this.soundSynth.playExplosion('boss');
             this.particleSystem.spawnBossExplosion(boss.x, boss.y);
+            this.scoreManager.addScore(damageResult.points, playerId);
             if (this.specialMovesManager) {
               this.specialMovesManager.addEnergy(10);
               this.specialMovesManager.spawnSpark(boss.x, boss.y);
@@ -1818,6 +2010,39 @@ export class Game implements IGameEngine {
     s.isFullscreen = this.fullscreenManager ? this.fullscreenManager.isFullscreen() : false;
     s.isPaused = this.state === 'PAUSED';
     s.canPause = this.state === 'PLAYING' || this.state === 'CHALLENGING_STAGE' || this.state === 'PAUSED';
+
+    // Dual-player Co-op Telemetry (Milestone M34)
+    const isCoop = this.isCoop();
+    s.isCoop = isCoop;
+
+    if (isCoop && this.playerManager) {
+      const p1 = this.playerManager.getPlayer('p1');
+      const p2 = this.playerManager.getPlayer('p2');
+
+      if (s.p1) {
+        s.p1.score = (p1 as any)?.score !== undefined && (p1 as any).score > 0 ? (p1 as any).score : (this.scoreManager ? this.scoreManager.getScore('p1') : s.score);
+        s.p1.lives = p1 ? p1.lives : s.lives;
+        s.p1.combo = (p1 as any)?.combo ?? 1;
+        s.p1.specialEnergy = (p1 as any)?.specialEnergy !== undefined ? (p1 as any).specialEnergy : s.specialEnergy;
+        s.p1.specialReady = (p1 as any)?.specialReady !== undefined ? (p1 as any).specialReady : (s.isSpecialReady ?? false);
+        s.p1.selectedSpecial = s.selectedSpecial;
+        s.p1.state = p1 ? (p1.state as any) : 'normal';
+        s.p1.reviveTimer = p1 ? p1.reviveTimer : 0;
+        s.p1.canDonateLife = this.playerManager.canDonateLife('p1');
+      }
+
+      if (s.p2) {
+        s.p2.score = (p2 as any)?.score !== undefined && (p2 as any).score > 0 ? (p2 as any).score : (this.scoreManager ? this.scoreManager.getScore('p2') : 0);
+        s.p2.lives = p2 ? p2.lives : 0;
+        s.p2.combo = (p2 as any)?.combo ?? 1;
+        s.p2.specialEnergy = (p2 as any)?.specialEnergy !== undefined ? (p2 as any).specialEnergy : s.specialEnergy;
+        s.p2.specialReady = (p2 as any)?.specialReady !== undefined ? (p2 as any).specialReady : (s.isSpecialReady ?? false);
+        s.p2.selectedSpecial = 'CHRONO';
+        s.p2.state = p2 ? (p2.state as any) : 'normal';
+        s.p2.reviveTimer = p2 ? p2.reviveTimer : 0;
+        s.p2.canDonateLife = this.playerManager.canDonateLife('p2');
+      }
+    }
   }
 
   public isReady(): boolean {

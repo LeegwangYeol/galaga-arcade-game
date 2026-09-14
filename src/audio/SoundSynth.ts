@@ -3065,6 +3065,73 @@ export class SoundSynth {
     }
   }
 
+  public playReviveEmergencyBeacon(options?: SoundPlaybackOptions): boolean {
+    const priority = options?.priority ?? SOUND_PRIORITY.HIGH;
+    if (!this.canPlayVoice(priority)) return false;
+    const ctx = this.audioManager.getContext();
+    const sfxBus = this.audioManager.getSfxGain();
+    if (!ctx || !sfxBus || this.audioManager.getIsMuted()) return false;
+
+    const now = ctx.currentTime;
+    const duration = 0.25;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    try {
+      osc.frequency.setValueAtTime(880, now);
+      osc.frequency.exponentialRampToValueAtTime(1760, now + duration);
+      const vol = 0.25 * (options?.volume ?? 1.0);
+      gain.gain.setValueAtTime(vol, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+    } catch {
+      // safe fallback
+    }
+    osc.connect(gain);
+    gain.connect(sfxBus);
+    this.registerNodeCleanup([osc, gain], osc, duration);
+    try {
+      osc.start(now);
+      osc.stop(now + duration + 0.01);
+    } catch {
+      // safe fallback
+    }
+    return true;
+  }
+
+  public playLifeDonatedChime(options?: SoundPlaybackOptions): boolean {
+    const priority = options?.priority ?? SOUND_PRIORITY.HIGH;
+    if (!this.canPlayVoice(priority)) return false;
+    const ctx = this.audioManager.getContext();
+    const sfxBus = this.audioManager.getSfxGain();
+    if (!ctx || !sfxBus || this.audioManager.getIsMuted()) return false;
+
+    const now = ctx.currentTime;
+    const duration = 0.35;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    try {
+      osc.frequency.setValueAtTime(523.25, now);
+      osc.frequency.setValueAtTime(659.25, now + 0.1);
+      osc.frequency.setValueAtTime(783.99, now + 0.2);
+      const vol = 0.3 * (options?.volume ?? 1.0);
+      gain.gain.setValueAtTime(vol, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+    } catch {
+      // safe fallback
+    }
+    osc.connect(gain);
+    gain.connect(sfxBus);
+    this.registerNodeCleanup([osc, gain], osc, duration);
+    try {
+      osc.start(now);
+      osc.stop(now + duration + 0.01);
+    } catch {
+      // safe fallback
+    }
+    return true;
+  }
+
   // ==========================================================================
   // Teardown & Reset
   // ==========================================================================

@@ -106,6 +106,16 @@ export type GameMode = 'SINGLE_PLAYER' | 'DEMO' | 'CHALLENGING_BONUS';
 // ============================================================================
 
 /**
+ * Player identity discriminator for multi-entity local co-op architecture.
+ */
+export type PlayerId = 'p1' | 'p2';
+
+/**
+ * Visual color scheme options for player craft.
+ */
+export type PlayerColorScheme = 'classic' | 'crimson' | 'amber';
+
+/**
  * Discrete operational states for the player fighter craft.
  */
 export type PlayerState =
@@ -115,7 +125,134 @@ export type PlayerState =
   | 'DUAL'
   | 'DESTROYED'
   | 'RESPAWNING'
-  | 'DOCKING';
+  | 'DOCKING'
+  | 'REVIVE_PENDING'
+  | 'ELIMINATED';
+
+/**
+ * Flexible case-insensitive player state string union used across systems.
+ */
+export type PlayerStateType =
+  | 'normal'
+  | 'capturing'
+  | 'captured'
+  | 'docking'
+  | 'dual'
+  | 'destroyed'
+  | 'respawning'
+  | 'revive_pending'
+  | 'eliminated'
+  | 'ALIVE'
+  | 'CAPTURING'
+  | 'CAPTURED'
+  | 'DOCKING'
+  | 'DUAL'
+  | 'DESTROYED'
+  | 'RESPAWNING'
+  | 'REVIVE_PENDING'
+  | 'ELIMINATED';
+
+export interface PlayerReviveTelemetry {
+  playerId: PlayerId;
+  state: PlayerStateType;
+  lives: number;
+  reviveTimer: number; // [0.0 .. 10.0]
+  isRevivePending: boolean;
+  canReceiveDonation: boolean;
+  canDonateLife: boolean;
+}
+
+export interface DualReviveStatus {
+  p1: PlayerReviveTelemetry;
+  p2: PlayerReviveTelemetry;
+  allDead: boolean;
+}
+
+export interface CoopScalingConfig {
+  bossHpMultiplier: number;           // 1.50 (+50%)
+  stageBossHpMultiplier: number;      // 1.60 (+60%)
+  waveAggressionMultiplier: number;   // 1.25 (+25%)
+  bulletDensityMultiplier: number;    // 1.25 (+25%)
+}
+
+/**
+ * Power-up buff telemetry representation for bottom dashboard.
+ */
+export interface PowerUpState {
+  type: string;
+  id?: string;
+  name?: string;
+  label?: string;
+  duration?: number;
+  maxDuration?: number;
+  remaining?: number;
+  remainingTime?: number;
+  remainingDuration?: number;
+  progress?: number;
+  isActive?: boolean;
+  color?: string;
+  primaryColor?: string;
+  accentColor?: string;
+  count?: number;
+}
+
+/**
+ * Co-op per-player dashboard telemetry data packet.
+ */
+export interface PlayerDashboardTelemetry {
+  score: number;
+  lives: number;
+  maxLives?: number;
+  specialGauge?: number; // 0.0 to 1.0 or 0 to 100
+  specialEnergy?: number;
+  specialName?: string;  // 'NOVA', 'TIME', 'CLONE', etc.
+  selectedSpecial?: string;
+  specialReady?: boolean;
+  isSpecialReady?: boolean;
+  combo?: number;
+  state?: PlayerStateType; // 'normal', 'revive_pending', 'eliminated', etc.
+  reviveTimer?: number;   // countdown in seconds (0.0 to 10.0)
+  canDonateLife?: boolean;
+  activePowerUps?: readonly any[];
+  powerUps?: (PowerUpState | any)[];
+}
+
+/**
+ * Symmetrical Dual Bottom Dashboard HUD State contract.
+ */
+export interface BottomDashboardState {
+  score?: number;
+  highScore?: number;
+  lives?: number;
+  stage?: number;
+  powerUps?: (PowerUpState | any)[];
+  specialMeter?: number;
+  specialReady?: boolean;
+  activeSpecialName?: string;
+  isMuted?: boolean;
+  isFullscreen?: boolean;
+  isPaused?: boolean;
+  // Co-op extensions:
+  isCoop?: boolean;
+  p1?: PlayerDashboardTelemetry;
+  p2?: PlayerDashboardTelemetry;
+  crisisWarning?: string | null;
+
+  // Backward-compatibility M28 telemetry fields:
+  isNewHighScore?: boolean;
+  reserveLives?: number;
+  activePowerUps?: readonly any[];
+  activePowerUpCount?: number;
+  specialEnergy?: number;
+  specialCharge?: number;
+  isSpecialReady?: boolean;
+  specialActive?: boolean;
+  selectedSpecial?: string;
+  canPause?: boolean;
+  crisisState?: string;
+  crisisType?: string;
+  isCrisisActive?: boolean;
+}
 
 /**
  * Configuration and state representation for the player.
@@ -245,6 +382,11 @@ export interface FlightPathData {
 export type BulletOwner = 'PLAYER' | 'ENEMY' | 'DRONE';
 
 /**
+ * Projectile source entity discriminator for multi-channel score attribution.
+ */
+export type ProjectileOwnerId = 'p1' | 'p2' | 'enemy' | 'drone';
+
+/**
  * Projectile type classifier.
  */
 export type BulletType = 'PLAYER_MISSILE' | 'ENEMY_RED_BULLET' | 'ENEMY_FAST_BEAM';
@@ -257,6 +399,7 @@ export interface BulletData {
   position: Vector2D;
   velocity: Vector2D;
   owner: BulletOwner;
+  ownerId?: ProjectileOwnerId;
   type: BulletType;
   active: boolean;
   width: number;
@@ -295,11 +438,23 @@ export interface TractorBeamConfig {
 // ============================================================================
 
 /**
+ * Operating input modes for single-player vs co-op multi-channel routing.
+ */
+export type InputMode = 'single' | 'coop';
+
+/**
+ * Player channel discriminator for multi-channel input routing.
+ */
+export type InputChannelId = 'p1' | 'p2';
+
+/**
  * Unified input snapshot consumed by player and UI systems per frame.
  */
 export interface InputState {
   moveLeft: boolean;
   moveRight: boolean;
+  moveUp?: boolean;
+  moveDown?: boolean;
   fire: boolean;
   pause: boolean;
   restart: boolean;
@@ -308,6 +463,16 @@ export interface InputState {
   touchLeft: boolean;
   touchRight: boolean;
   touchFire: boolean;
+  touchUp?: boolean;
+  touchDown?: boolean;
+}
+
+/**
+ * Dual input state object passed to PlayerManager.update().
+ */
+export interface DualInputState {
+  p1: InputState;
+  p2: InputState;
 }
 
 /**

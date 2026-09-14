@@ -27,6 +27,9 @@ export interface ScreenRenderContext {
   hits: number;
   challengingHits?: number;
   isDual?: boolean;
+  isCoop?: boolean;
+  p1Score?: number;
+  p2Score?: number;
 }
 
 export class Screens {
@@ -38,6 +41,7 @@ export class Screens {
 
   public static renderTitleScreen(context: ScreenRenderContext): void {
     const { ctx, width, blinkTimer } = context;
+    const isCoop = context.isCoop ?? false;
 
     ctx.save();
     ctx.imageSmoothingEnabled = false;
@@ -48,23 +52,26 @@ export class Screens {
     // Subtitle
     HUD.drawText(ctx, 'ARCADE WEB ENGINE', width / 2, 72, { color: PALETTE.BLUE_CYAN, align: 'center' });
 
-    // 2. Blinking Call-to-Action (2.5 Hz = 400ms cycle)
-    const isBlinkOn = Math.floor(blinkTimer * 2.5) % 2 === 0;
+    // 2. Mode Selection Block (1-PLAYER vs 2-PLAYER)
+    HUD.drawText(ctx, isCoop ? '  1-PLAYER (SOLO)   [1]  ' : '> 1-PLAYER (SOLO)   [1] <', width / 2, 92, { color: isCoop ? PALETTE.GREY_LIGHT : PALETTE.YELLOW, align: 'center' });
+    HUD.drawText(ctx, isCoop ? '> 2-PLAYER (CO-OP)  [2] <' : '  2-PLAYER (CO-OP)  [2]  ', width / 2, 104, { color: isCoop ? PALETTE.YELLOW : PALETTE.GREY_LIGHT, align: 'center' });
 
-    HUD.drawText(ctx, 'PUSH START BUTTON', width / 2, 98, { color: PALETTE.YELLOW, align: 'center' });
+    // 3. Blinking Call-to-Action (2.5 Hz = 400ms cycle)
+    const isBlinkOn = Math.floor(blinkTimer * 2.5) % 2 === 0;
+    HUD.drawText(ctx, 'PUSH START BUTTON', width / 2, 118, { color: PALETTE.YELLOW, align: 'center' });
 
     if (isBlinkOn) {
-      HUD.drawText(ctx, 'CLICK OR TOUCH TO START', width / 2, 114, { color: PALETTE.RED, align: 'center' });
+      HUD.drawText(ctx, 'CLICK OR TOUCH TO START', width / 2, 126, { color: PALETTE.RED, align: 'center' });
     }
 
-    // 3. Point Value Reference Table
+    // 4. Point Value Reference Table
     this.renderPointTable(ctx, width / 2, 134);
 
-    // 4. Controls Quick Guide
-    this.drawSmallText(ctx, 'KEYBOARD: [A/D] [<- ->] FIRE: [SPACE/Z]', width / 2, 236, PALETTE.GREY_LIGHT, 'center');
-    this.drawSmallText(ctx, 'PAUSE: [P] TOUCH: VIRTUAL D-PAD & FIRE', width / 2, 248, PALETTE.GREY_LIGHT, 'center');
+    // 5. Dynamic Controls Quick Guide
+    this.drawSmallText(ctx, isCoop ? 'P1: WASD+SPACE | P2: ARROWS+ENTER' : 'KEYBOARD: [A/D] [<- ->] FIRE: [SPACE/Z]', width / 2, 236, isCoop ? PALETTE.YELLOW : PALETTE.GREY_LIGHT, 'center');
+    this.drawSmallText(ctx, isCoop ? 'P1: [X] SPECIAL | P2: [M] SPECIAL' : 'PAUSE: [P] TOUCH: VIRTUAL D-PAD & FIRE', width / 2, 248, isCoop ? PALETTE.BLUE_CYAN : PALETTE.GREY_LIGHT, 'center');
 
-    // 5. Copyright Attribution
+    // 6. Copyright Attribution
     this.drawSmallText(ctx, '© 1981 NAMCO BANDAI / WEB ADAPTATION', width / 2, 270, PALETTE.GREY_DARK, 'center');
 
     ctx.restore();
@@ -123,13 +130,15 @@ export class Screens {
 
   public static renderStageIntro(context: ScreenRenderContext): void {
     const { ctx, width, height, stage } = context;
+    const isCoop = context.isCoop ?? false;
     const isChallenging = stage >= 3 && stage % 4 === 3;
 
     ctx.save();
     ctx.imageSmoothingEnabled = false;
 
-    // PLAYER ONE Banner
-    HUD.drawText(ctx, 'PLAYER ONE', width / 2, height / 2 - 18, { color: PALETTE.BLUE_CYAN, align: 'center' });
+    // PLAYER Banner
+    const playerBanner = isCoop ? 'PLAYERS ONE & TWO' : 'PLAYER ONE';
+    HUD.drawText(ctx, playerBanner, width / 2, height / 2 - 18, { color: PALETTE.BLUE_CYAN, align: 'center' });
 
     // STAGE XX / CHALLENGING STAGE Banner
     if (isChallenging) {
@@ -186,6 +195,7 @@ export class Screens {
 
   public static renderPauseOverlay(context: ScreenRenderContext): void {
     const { ctx, width, height } = context;
+    const isCoop = context.isCoop ?? false;
 
     ctx.save();
     ctx.imageSmoothingEnabled = false;
@@ -208,9 +218,9 @@ export class Screens {
     ctx.strokeRect(boxX, boxY, boxW, boxH);
 
     // Text Content
-    HUD.drawText(ctx, 'PAUSE', width / 2, height / 2 - 16, { color: PALETTE.YELLOW, align: 'center' });
-    this.drawSmallText(ctx, 'PRESS P OR ESC TO RESUME', width / 2, height / 2 + 6, PALETTE.WHITE, 'center');
-    this.drawSmallText(ctx, 'TOUCH SCREEN TO RESUME', width / 2, height / 2 + 18, PALETTE.BLUE_CYAN, 'center');
+    HUD.drawText(ctx, isCoop ? 'CO-OP PAUSED' : 'PAUSE', width / 2, height / 2 - 16, { color: PALETTE.YELLOW, align: 'center' });
+    this.drawSmallText(ctx, isCoop ? 'P1: WASD+SPACE | P2: ARROWS+ENTER' : 'PRESS P OR ESC TO RESUME', width / 2, height / 2 + 6, PALETTE.WHITE, 'center');
+    this.drawSmallText(ctx, isCoop ? 'PRESS P OR ESC TO RESUME' : 'TOUCH SCREEN TO RESUME', width / 2, height / 2 + 18, PALETTE.BLUE_CYAN, 'center');
 
     ctx.restore();
   }

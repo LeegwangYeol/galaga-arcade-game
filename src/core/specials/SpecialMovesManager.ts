@@ -16,7 +16,7 @@ import type { Game } from '../Game';
 import type { Enemy } from '../../entities/Enemy';
 import { Player } from '../../entities/Player';
 import { EnemyState } from '../../types';
-import type { Rect } from '../../types';
+import type { Rect, PlayerId } from '../../types';
 import { BaseBoss } from '../boss/BaseBoss';
 import { SpriteRenderer } from '../../renderer/SpriteRenderer';
 
@@ -40,6 +40,7 @@ export class SpecialMovesManager {
 
   // Selected & Active Move States
   public selectedMove: SpecialMoveType = SpecialMoveType.NOVA_BARRAGE;
+  public activePlayerId: PlayerId = 'p1';
   public isActive: boolean = false;
   public activeMove: SpecialMoveType | null = null;
   public activeTimer: number = 0;
@@ -145,15 +146,16 @@ export class SpecialMovesManager {
 
   // --- Trigger & Execution ---
 
-  public trigger(move?: SpecialMoveType): boolean {
-    return this.triggerSpecial(move);
+  public trigger(move?: SpecialMoveType, playerId: PlayerId = 'p1'): boolean {
+    return this.triggerSpecial(move, playerId);
   }
 
-  public triggerSpecial(move?: SpecialMoveType): boolean {
+  public triggerSpecial(move?: SpecialMoveType, playerId: PlayerId = 'p1'): boolean {
     if (!this.isReady()) {
       return false;
     }
 
+    this.activePlayerId = playerId;
     const targetMove = move ?? this.selectedMove;
 
     // Consume gauge and set cooldown
@@ -181,7 +183,7 @@ export class SpecialMovesManager {
   // --- 1. Nova Barrage ---
 
   private executeNovaBarrage(): void {
-    const player = this.game.player;
+    const player = (this.game as any).getPlayer ? (this.game as any).getPlayer(this.activePlayerId) : this.game.player;
     const px = player ? player.x : 112;
     const py = player ? player.y : 250;
 
@@ -270,7 +272,7 @@ export class SpecialMovesManager {
     this.warpRamTimer = this.warpRamDuration;
     this.warpRamExitedTop = false;
 
-    const player = this.game.player;
+    const player = (this.game as any).getPlayer ? (this.game as any).getPlayer(this.activePlayerId) : this.game.player;
     if (player) {
       this.warpRamStartY = player.y || Player.BASELINE_Y;
       player.isWarpRamActive = true;
@@ -321,7 +323,7 @@ export class SpecialMovesManager {
     // 3. Dimensional Warp Ram kinematics
     if (this.warpRamTimer > 0) {
       this.warpRamTimer = Math.max(0, this.warpRamTimer - dt);
-      const player = this.game.player;
+      const player = (this.game as any).getPlayer ? (this.game as any).getPlayer(this.activePlayerId) : this.game.player;
 
       if (player) {
         // Enforce invulnerability during warp ram
@@ -408,7 +410,7 @@ export class SpecialMovesManager {
   // --- Collision Resolution Hook ---
 
   public resolveCollisions(enemies: Enemy[], bossManager?: { activeBoss: BaseBoss | null }): void {
-    const player = this.game.player;
+    const player = (this.game as any).getPlayer ? (this.game as any).getPlayer(this.activePlayerId) : this.game.player;
 
     // 1. Nova Missiles vs Enemies
     this.missilePool.forEachActiveSafe((missile) => {
@@ -442,7 +444,7 @@ export class SpecialMovesManager {
               this.game.soundSynth?.playExplosion('small');
               this.game.particleSystem?.spawnBossExplosion(enemy.x, enemy.y, 16);
               if (this.game.scoreManager) {
-                this.game.scoreManager.addScore(res.points);
+                this.game.scoreManager.addScore(res.points, this.activePlayerId);
               }
             }
           }
@@ -496,7 +498,7 @@ export class SpecialMovesManager {
               this.game.soundSynth?.playExplosion('small');
               this.game.particleSystem?.spawnBossExplosion(enemy.x, enemy.y, 20);
               if (this.game.scoreManager) {
-                this.game.scoreManager.addScore(res.points);
+                this.game.scoreManager.addScore(res.points, this.activePlayerId);
               }
             }
           }
@@ -518,9 +520,11 @@ export class SpecialMovesManager {
       }
     }
 
-    // 3. Energy Sparks Collection vs Player
-    if (player && player.state !== 'DESTROYED') {
-      const playerBox = player.getHitbox();
+    // 3. Energy Sparks Collection vs Players
+    const players: Player[] = (this.game as any).players ?? (player ? [player] : []);
+    for (const p of players) {
+      if (!p || p.state === 'DESTROYED') continue;
+      const playerBox = p.getHitbox();
 
       this.sparkPool.forEachActiveSafe((spark) => {
         if (!spark.active) return;
@@ -529,7 +533,7 @@ export class SpecialMovesManager {
         if (checkAABB(playerBox, sBox)) {
           this.addEnergy(spark.value);
           if (this.game.scoreManager) {
-            this.game.scoreManager.addScore(spark.points);
+            this.game.scoreManager.addScore(spark.points, p.id);
           }
           if (this.game.particleSystem) {
             this.game.particleSystem.spawnHitSparks(spark.x, spark.y);
@@ -571,7 +575,7 @@ export class SpecialMovesManager {
     }
 
     // 4. Warp Ram Plasma Shockcone & Motion Blur
-    if (this.isWarpRamActive() && this.game.player) {
+    if (this.isWarpRamActive()) {
       this.renderWarpRamVFX(ctx);
     }
   }
@@ -581,7 +585,7 @@ export class SpecialMovesManager {
   }
 
   private renderWarpRamVFX(ctx: CanvasRenderingContext2D): void {
-    const player = this.game.player;
+    const player = (this.game as any).getPlayer ? (this.game as any).getPlayer(this.activePlayerId) : this.game.player;
     if (!player) return;
 
     // Relativistic speed lines
@@ -619,9 +623,13 @@ export class SpecialMovesManager {
     this.activeTimer = 0;
     this.chronoFreezeTimer = 0;
     this.warpRamTimer = 0;
-    if (this.game?.player) {
-      this.game.player.isWarpRamActive = false;
-      this.game.player.y = Player.BASELINE_Y;
+    this.activePlayerId = 'p1';
+    const players: Player[] = (this.game as any).players ?? (this.game?.player ? [this.game.player] : []);
+    for (const p of players) {
+      if (p) {
+        p.isWarpRamActive = false;
+        p.y = Player.BASELINE_Y;
+      }
     }
   }
 
@@ -633,12 +641,16 @@ export class SpecialMovesManager {
     this.activeTimer = 0;
     this.chronoFreezeTimer = 0;
     this.warpRamTimer = 0;
+    this.activePlayerId = 'p1';
     this.warpRamHitTargetIds.clear();
     this.missilePool.clear();
     this.sparkPool.clear();
-    if (this.game?.player) {
-      this.game.player.isWarpRamActive = false;
-      this.game.player.y = Player.BASELINE_Y;
+    const players: Player[] = (this.game as any).players ?? (this.game?.player ? [this.game.player] : []);
+    for (const p of players) {
+      if (p) {
+        p.isWarpRamActive = false;
+        p.y = Player.BASELINE_Y;
+      }
     }
   }
 

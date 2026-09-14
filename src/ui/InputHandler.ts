@@ -6,9 +6,24 @@
  * continuous direction states, non-scrolling touch zones, and virtual coordinate translation.
  */
 
-import type { InputState } from '../types';
+import type { InputState, InputMode, DualInputState, PlayerId } from '../types';
 import type { ScreenManager } from '../core/ScreenManager';
 import { AudioContextManager } from '../audio/AudioContextManager';
+
+/**
+ * Mobile split-screen touch session descriptor.
+ */
+export interface PlayerTouchSession {
+  id: number;
+  playerId: 'p1' | 'p2';
+  role: 'steer' | 'fire' | 'special';
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
+  startTime: number;
+  lastUpdateTime: number;
+}
 
 export class InputHandler {
   private canvas: HTMLCanvasElement;
@@ -16,69 +31,91 @@ export class InputHandler {
   private onUserGesture?: () => void;
   private userGestureNotified: boolean = false;
 
-  // Unified persistent input state
-  private state: InputState = {
-    moveLeft: false,
-    moveRight: false,
-    fire: false,
-    pause: false,
-    restart: false,
-    pointerX: null,
-    pointerActive: false,
-    touchLeft: false,
-    touchRight: false,
-    touchFire: false,
-  };
+  // Operating mode ('single' or 'coop')
+  private mode: InputMode = 'single';
+
+  // Helper to generate a fresh zero-allocation InputState record
+  private static createDefaultInputState(): InputState {
+    return {
+      moveLeft: false,
+      moveRight: false,
+      moveUp: false,
+      moveDown: false,
+      fire: false,
+      pause: false,
+      restart: false,
+      pointerX: null,
+      pointerActive: false,
+      touchLeft: false,
+      touchRight: false,
+      touchFire: false,
+      touchUp: false,
+      touchDown: false,
+    };
+  }
+
+  // Pre-allocated Zero-GC input states
+  private state: InputState = InputHandler.createDefaultInputState();
+  private stateP1: InputState = InputHandler.createDefaultInputState();
+  private stateP2: InputState = InputHandler.createDefaultInputState();
+  private idleState: InputState = InputHandler.createDefaultInputState();
+  private dualState: DualInputState = { p1: this.stateP1, p2: this.stateP2 };
 
   // Discrete single-pulse action triggers (consumed on read)
   private fireTriggered: boolean = false;
+  private p1FireTriggered: boolean = false;
+  private p2FireTriggered: boolean = false;
+
   private pauseTriggered: boolean = false;
   private restartTriggered: boolean = false;
-  private specialTriggered: boolean = false;
-  private cycleSpecialTriggered: boolean = false;
 
-  // Double-tap and Phase Warp tracking (Milestone M19)
+  private specialTriggered: boolean = false;
+  private p1SpecialTriggered: boolean = false;
+  private p2SpecialTriggered: boolean = false;
+
+  private cycleSpecialTriggered: boolean = false;
+  private p1CycleSpecialTriggered: boolean = false;
+  private p2CycleSpecialTriggered: boolean = false;
+
+  private select1PTriggered: boolean = false;
+  private select2PTriggered: boolean = false;
+
+  private p1DonateTriggered: boolean = false;
+  private p2DonateTriggered: boolean = false;
+
+  // Double-tap and Phase Warp tracking (Milestone M19 & M32)
   private lastLeftKeyDownTime: number = 0;
   private lastRightKeyDownTime: number = 0;
   private phaseWarpTriggered: number | null = null;
 
+  private p1LastLeftKeyDownTime: number = 0;
+  private p1LastRightKeyDownTime: number = 0;
+  private p1PhaseWarpTriggered: number | null = null;
+
+  private p2LastLeftKeyDownTime: number = 0;
+  private p2LastRightKeyDownTime: number = 0;
+  private p2PhaseWarpTriggered: number | null = null;
+
+  // Last pointer tap in virtual coordinates for Title mode selection
+  private lastPointerTapVirtual: { x: number; y: number } | null = null;
+
   // Set of actively depressed key codes for rollover handling
   private activeKeys = new Set<string>();
 
-  // Touch identifiers for multi-touch separation
+  // Touch identifiers for multi-touch separation (Single player)
   private touchIdMove: number | null = null;
   private touchIdFire: number | null = null;
 
+  // Touch sessions for multi-player co-op split screen
+  private touchSessions = new Map<number, PlayerTouchSession>();
+
   // Game keys requiring preventDefault to inhibit viewport scrolling
   private static readonly PREVENT_DEFAULT_KEYS = new Set([
-    'ArrowLeft',
-    'ArrowRight',
-    'ArrowUp',
-    'ArrowDown',
-    'Space',
-    'KeyA',
-    'KeyD',
-    'KeyW',
-    'KeyS',
-    'KeyZ',
-    'KeyX',
-    'KeyC',
-    'KeyV',
-    'KeyB',
-    'KeyN',
-    'KeyK',
-    'KeyJ',
-    'KeyP',
-    'Escape',
-    'Enter',
-    'KeyR',
-    'x',
-    'X',
-    'c',
-    'C',
-    'Shift',
-    'ShiftLeft',
-    'ShiftRight',
+    'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space',
+    'KeyA', 'KeyD', 'KeyW', 'KeyS', 'KeyZ', 'KeyX', 'KeyC',
+    'KeyV', 'KeyB', 'KeyN', 'KeyK', 'KeyJ', 'KeyM', 'KeyP',
+    'Escape', 'Enter', 'Numpad0', 'Digit1', 'Digit2', 'Numpad1', 'Numpad2', 'KeyR',
+    'ShiftLeft', 'ShiftRight', 'KeyL', 'KeyO', 'Period', 'NumpadDecimal',
   ]);
 
   // Bound listener references for deterministic cleanup
@@ -220,12 +257,44 @@ export class InputHandler {
   // Public Interface
   // ==========================================================================
 
+  public setMode(mode: InputMode): void {
+    this.mode = mode;
+    this.reset();
+  }
+
+  public getMode(): InputMode {
+    return this.mode;
+  }
+
+  public isCoop(): boolean {
+    return this.mode === 'coop';
+  }
+
   /**
-   * Returns a readonly snapshot of current continuous input states.
+   * Returns a readonly snapshot of current continuous input states (100% backward compatible).
    */
   public getState(): Readonly<InputState> {
     this.pollGamepad();
     return this.state;
+  }
+
+  /**
+   * Returns discrete channel input state for Player 1 or Player 2.
+   */
+  public getInputState(playerId: PlayerId = 'p1'): Readonly<InputState> {
+    this.pollGamepad();
+    if (this.mode === 'single') {
+      return playerId === 'p1' ? this.state : this.idleState;
+    }
+    return playerId === 'p2' ? this.stateP2 : this.stateP1;
+  }
+
+  /**
+   * Returns zero-allocation dual-channel input state structure.
+   */
+  public getDualInputState(): DualInputState {
+    this.pollGamepad();
+    return this.dualState;
   }
 
   private pollGamepad(): void {
@@ -239,10 +308,12 @@ export class InputHandler {
             // Buttons 2 (X / Square) or 1 (B / Circle)
             if (gp.buttons[2]?.pressed || gp.buttons[1]?.pressed) {
               this.specialTriggered = true;
+              this.p1SpecialTriggered = true;
             }
             // Bumpers 4 (L1) or 5 (R1)
             if (gp.buttons[4]?.pressed || gp.buttons[5]?.pressed) {
               this.cycleSpecialTriggered = true;
+              this.p1CycleSpecialTriggered = true;
             }
           }
         }
@@ -258,93 +329,252 @@ export class InputHandler {
    * execute exactly once per user trigger.
    */
   public consumeAction(
-    action: 'fire' | 'pause' | 'restart' | 'special' | 'specialMove' | 'cycleSpecial' | 'phaseWarp' | 'phaseDrive' | 'shift'
+    action: 'fire' | 'pause' | 'restart' | 'special' | 'specialMove' | 'cycleSpecial' | 'phaseWarp' | 'phaseDrive' | 'shift' | 'select1P' | 'select2P' | string,
+    playerId?: PlayerId
   ): boolean {
-    switch (action) {
-      case 'fire': {
-        const val = this.fireTriggered;
-        this.fireTriggered = false;
-        return val;
-      }
-      case 'pause': {
-        const val = this.pauseTriggered;
-        this.pauseTriggered = false;
-        return val;
-      }
-      case 'restart': {
-        const val = this.restartTriggered;
-        this.restartTriggered = false;
-        return val;
-      }
-      case 'special':
-      case 'specialMove': {
-        const val = this.specialTriggered;
-        this.specialTriggered = false;
-        return val;
-      }
-      case 'cycleSpecial': {
-        const val = this.cycleSpecialTriggered;
-        this.cycleSpecialTriggered = false;
-        return val;
-      }
-      case 'phaseWarp':
-      case 'phaseDrive':
-      case 'shift': {
-        const val = this.phaseWarpTriggered !== null;
-        this.phaseWarpTriggered = null;
-        return val;
-      }
-      default:
-        return false;
+    if (action === 'select1P') {
+      const v = this.select1PTriggered;
+      this.select1PTriggered = false;
+      return v;
     }
+    if (action === 'select2P') {
+      const v = this.select2PTriggered;
+      this.select2PTriggered = false;
+      return v;
+    }
+    if (action === 'pause') {
+      const v = this.pauseTriggered;
+      this.pauseTriggered = false;
+      return v;
+    }
+    if (action === 'restart') {
+      const v = this.restartTriggered;
+      this.restartTriggered = false;
+      return v;
+    }
+    if (action === 'fire') {
+      let v = false;
+      if (playerId === 'p2') { v = this.p2FireTriggered; this.p2FireTriggered = false; }
+      else if (playerId === 'p1') { v = this.p1FireTriggered; this.p1FireTriggered = false; }
+      else if (this.mode === 'coop') { v = this.p1FireTriggered || this.p2FireTriggered; this.p1FireTriggered = false; this.p2FireTriggered = false; }
+      else { v = this.fireTriggered || this.p1FireTriggered; this.fireTriggered = false; this.p1FireTriggered = false; }
+      return v;
+    }
+    if (action === 'special' || action === 'specialMove') {
+      let v = false;
+      if (playerId === 'p2') { v = this.p2SpecialTriggered; this.p2SpecialTriggered = false; }
+      else if (playerId === 'p1') { v = this.p1SpecialTriggered; this.p1SpecialTriggered = false; }
+      else if (this.mode === 'coop') { v = this.p1SpecialTriggered || this.p2SpecialTriggered; this.p1SpecialTriggered = false; this.p2SpecialTriggered = false; }
+      else { v = this.specialTriggered || this.p1SpecialTriggered; this.specialTriggered = false; this.p1SpecialTriggered = false; }
+      return v;
+    }
+    if (action === 'cycleSpecial') {
+      let v = false;
+      if (playerId === 'p2') { v = this.p2CycleSpecialTriggered; this.p2CycleSpecialTriggered = false; }
+      else { v = this.cycleSpecialTriggered || this.p1CycleSpecialTriggered; this.cycleSpecialTriggered = false; this.p1CycleSpecialTriggered = false; }
+      return v;
+    }
+
+    if (action === 'phaseWarp' || action === 'phaseDrive' || action === 'shift') {
+      if (playerId === 'p2') {
+        const val = this.p2PhaseWarpTriggered !== null;
+        this.p2PhaseWarpTriggered = null;
+        return val;
+      }
+      if (playerId === 'p1') {
+        const val = this.p1PhaseWarpTriggered !== null;
+        this.p1PhaseWarpTriggered = null;
+        return val;
+      }
+      const val = this.phaseWarpTriggered !== null || this.p1PhaseWarpTriggered !== null;
+      this.phaseWarpTriggered = null;
+      this.p1PhaseWarpTriggered = null;
+      return val;
+    }
+
+    if (action === 'donateLife') {
+      if (playerId === 'p1') {
+        const v = this.p1DonateTriggered;
+        this.p1DonateTriggered = false;
+        return v;
+      }
+      if (playerId === 'p2') {
+        const v = this.p2DonateTriggered;
+        this.p2DonateTriggered = false;
+        return v;
+      }
+      const anyDonate = this.p1DonateTriggered || this.p2DonateTriggered;
+      this.p1DonateTriggered = false;
+      this.p2DonateTriggered = false;
+      return anyDonate;
+    }
+
+    return false;
   }
 
   /**
    * Consumes single-pulse Phase Warp trigger (-1 for left, +1 for right, null if inactive)
    */
-  public consumePhaseWarp(): number | null {
-    const val = this.phaseWarpTriggered;
+  public consumePhaseWarp(playerId: PlayerId = 'p1'): number | null {
+    if (playerId === 'p2') {
+      const val = this.p2PhaseWarpTriggered;
+      this.p2PhaseWarpTriggered = null;
+      return val;
+    }
+    const val = this.p1PhaseWarpTriggered ?? this.phaseWarpTriggered;
+    this.p1PhaseWarpTriggered = null;
     this.phaseWarpTriggered = null;
     return val;
   }
 
   /**
-   * Updates the active ScreenManager reference for dynamic coordinate resolution.
+   * Consumes last pointer tap virtual coordinate (for title screen selection)
    */
-  public setScreenManager(screenManager: ScreenManager | null): void {
-    this.screenManager = screenManager;
+  public consumePointerTap(): { x: number; y: number } | null {
+    const tap = this.lastPointerTapVirtual;
+    this.lastPointerTapVirtual = null;
+    return tap;
+  }
+
+  private clearInputState(target: InputState): void {
+    target.moveLeft = false;
+    target.moveRight = false;
+    target.moveUp = false;
+    target.moveDown = false;
+    target.fire = false;
+    target.pause = false;
+    target.restart = false;
+    target.pointerX = null;
+    target.pointerActive = false;
+    target.touchLeft = false;
+    target.touchRight = false;
+    target.touchFire = false;
+    target.touchUp = false;
+    target.touchDown = false;
   }
 
   /**
-   * Clears all active input states and buffers.
+   * Clears all active input states, buffers, and touch sessions.
    */
   public reset(): void {
     this.activeKeys.clear();
-    this.state.moveLeft = false;
-    this.state.moveRight = false;
-    this.state.fire = false;
-    this.state.pause = false;
-    this.state.restart = false;
-    this.state.pointerX = null;
-    this.state.pointerActive = false;
-    this.state.touchLeft = false;
-    this.state.touchRight = false;
-    this.state.touchFire = false;
+    this.clearInputState(this.state);
+    this.clearInputState(this.stateP1);
+    this.clearInputState(this.stateP2);
+    this.touchSessions.clear();
     this.touchIdMove = null;
     this.touchIdFire = null;
+
     this.fireTriggered = false;
+    this.p1FireTriggered = false;
+    this.p2FireTriggered = false;
     this.pauseTriggered = false;
     this.restartTriggered = false;
     this.specialTriggered = false;
+    this.p1SpecialTriggered = false;
+    this.p2SpecialTriggered = false;
     this.cycleSpecialTriggered = false;
+    this.p1CycleSpecialTriggered = false;
+    this.p2CycleSpecialTriggered = false;
     this.phaseWarpTriggered = null;
+    this.p1PhaseWarpTriggered = null;
+    this.p2PhaseWarpTriggered = null;
+    this.select1PTriggered = false;
+    this.select2PTriggered = false;
+    this.p1DonateTriggered = false;
+    this.p2DonateTriggered = false;
+    this.lastPointerTapVirtual = null;
     this.lastLeftKeyDownTime = 0;
     this.lastRightKeyDownTime = 0;
+    this.p1LastLeftKeyDownTime = 0;
+    this.p1LastRightKeyDownTime = 0;
+    this.p2LastLeftKeyDownTime = 0;
+    this.p2LastRightKeyDownTime = 0;
 
     this.domBtnLeft?.classList.remove('active');
     this.domBtnRight?.classList.remove('active');
     this.domBtnFire?.classList.remove('active');
+    this.domBtnSpecial?.classList.remove('active');
   }
+
+  /**
+   * Renders zero-GC procedural Canvas 2D touch guides in co-op mode.
+   */
+  public renderTouchGuides(ctx: CanvasRenderingContext2D): void {
+    if (this.mode !== 'coop') return;
+
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+
+    // Center divider at X = 112 (virtual width 224)
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(112, 0);
+    ctx.lineTo(112, 288);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 1P and 2P Zone indicators at the bottom
+    ctx.font = '8px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(0, 255, 255, 0.3)';
+    ctx.fillText('1P ZONE', 56, 280);
+
+    ctx.fillStyle = 'rgba(255, 68, 68, 0.3)';
+    ctx.fillText('2P ZONE', 168, 280);
+
+    // Render active steering thumbsticks if any
+    for (const session of this.touchSessions.values()) {
+      if (session.role !== 'steer') continue;
+      const isP1 = session.playerId === 'p1';
+      const color = isP1 ? 'rgba(0, 255, 255, 0.5)' : 'rgba(255, 68, 68, 0.5)';
+      const puckColor = isP1 ? 'rgba(0, 255, 255, 0.8)' : 'rgba(255, 68, 68, 0.8)';
+
+      let virtAnchorX = isP1 ? 56 : 168;
+      let virtAnchorY = 240;
+      let virtCurrentX = virtAnchorX;
+      let virtCurrentY = virtAnchorY;
+
+      if (this.screenManager) {
+        const a = this.screenManager.clientToVirtual(session.startX, session.startY);
+        const c = this.screenManager.clientToVirtual(session.currentX, session.currentY);
+        if (a) {
+          virtAnchorX = a.x;
+          virtAnchorY = a.y;
+        }
+        if (c) {
+          virtCurrentX = c.x;
+          virtCurrentY = c.y;
+        }
+      }
+
+      // Outer ring
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(virtAnchorX, virtAnchorY, 16, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Inner puck
+      const dx = virtCurrentX - virtAnchorX;
+      const dy = virtCurrentY - virtAnchorY;
+      const dist = Math.hypot(dx, dy);
+      const maxR = 16;
+      const puckX = dist > maxR ? virtAnchorX + (dx / dist) * maxR : virtCurrentX;
+      const puckY = dist > maxR ? virtAnchorY + (dy / dist) * maxR : virtCurrentY;
+
+      ctx.fillStyle = puckColor;
+      ctx.beginPath();
+      ctx.arc(puckX, puckY, 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+
 
   /**
    * Detaches all DOM and window event listeners and frees references.
@@ -509,112 +739,167 @@ export class InputHandler {
 
     const isRepeat = e.repeat;
 
-    // Movement: Left
-    if (this.isLeftKey(e.code, e.key)) {
-      this.state.moveLeft = true;
-      this.state.pointerActive = false;
+    // Mode Selection Keys
+    if (this.isSelect1PKey(e.code, e.key)) {
       if (!isRepeat) {
-        const now = performance.now();
-        if (now - this.lastLeftKeyDownTime <= 250) {
-          this.phaseWarpTriggered = -1;
-        }
-        this.lastLeftKeyDownTime = now;
+        this.select1PTriggered = true;
+      }
+    }
+    if (this.isSelect2PKey(e.code, e.key)) {
+      if (!isRepeat) {
+        this.select2PTriggered = true;
       }
     }
 
-    // Movement: Right
-    if (this.isRightKey(e.code, e.key)) {
-      this.state.moveRight = true;
-      this.state.pointerActive = false;
-      if (!isRepeat) {
-        const now = performance.now();
-        if (now - this.lastRightKeyDownTime <= 250) {
-          this.phaseWarpTriggered = 1;
-        }
-        this.lastRightKeyDownTime = now;
-      }
-    }
-
-    // Shift Key: Phase Warp (Milestone M19)
-    if (this.isShiftKey(e.code, e.key)) {
-      if (!isRepeat) {
-        const dir = this.state.moveLeft ? -1 : (this.state.moveRight ? 1 : 1);
-        this.phaseWarpTriggered = dir;
-      }
-    }
-
-    // Fire
-    if (this.isFireKey(e.code, e.key)) {
-      this.state.fire = true;
-      if (!isRepeat) {
-        this.fireTriggered = true;
-      }
-    }
-
-    // Pause Toggle
+    // Global Pause Toggle
     if (this.isPauseKey(e.code, e.key)) {
       this.state.pause = true;
+      this.stateP1.pause = true;
+      this.stateP2.pause = true;
       if (!isRepeat) {
         this.pauseTriggered = true;
       }
     }
 
-    // Restart / Start Action
+    // Global Restart / Start Action
     if (this.isRestartKey(e.code, e.key)) {
       this.state.restart = true;
+      this.stateP1.restart = true;
+      this.stateP2.restart = true;
       if (!isRepeat) {
         this.restartTriggered = true;
       }
     }
 
-    // Special Move (KeyX / x / X)
-    if (this.isSpecialKey(e.code, e.key)) {
-      if (!isRepeat) {
-        this.specialTriggered = true;
+    if (this.mode === 'single') {
+      if (this.isLeftKey(e.code, e.key)) {
+        this.state.moveLeft = true;
+        this.state.pointerActive = false;
+        if (!isRepeat) {
+          const now = performance.now();
+          if (now - this.lastLeftKeyDownTime <= 250) this.phaseWarpTriggered = -1;
+          this.lastLeftKeyDownTime = now;
+        }
       }
-    }
+      if (this.isRightKey(e.code, e.key)) {
+        this.state.moveRight = true;
+        this.state.pointerActive = false;
+        if (!isRepeat) {
+          const now = performance.now();
+          if (now - this.lastRightKeyDownTime <= 250) this.phaseWarpTriggered = 1;
+          this.lastRightKeyDownTime = now;
+        }
+      }
+      if (this.isUpKey(e.code, e.key)) this.state.moveUp = true;
+      if (this.isDownKey(e.code, e.key)) this.state.moveDown = true;
+      if (this.isShiftKey(e.code, e.key) && !isRepeat) {
+        this.phaseWarpTriggered = this.state.moveLeft ? -1 : 1;
+      }
+      if (this.isFireKey(e.code, e.key)) {
+        this.state.fire = true;
+        if (!isRepeat) this.fireTriggered = true;
+      }
+      if (this.isSpecialKey(e.code, e.key) && !isRepeat) this.specialTriggered = true;
+      if (this.isCycleSpecialKey(e.code, e.key) && !isRepeat) this.cycleSpecialTriggered = true;
+    } else {
+      // Co-op Mode: P1
+      if (this.isP1LeftKey(e.code, e.key)) {
+        this.stateP1.moveLeft = true;
+        this.stateP1.pointerActive = false;
+        if (!isRepeat) {
+          const now = performance.now();
+          if (now - this.p1LastLeftKeyDownTime <= 250) this.p1PhaseWarpTriggered = -1;
+          this.p1LastLeftKeyDownTime = now;
+        }
+      }
+      if (this.isP1RightKey(e.code, e.key)) {
+        this.stateP1.moveRight = true;
+        this.stateP1.pointerActive = false;
+        if (!isRepeat) {
+          const now = performance.now();
+          if (now - this.p1LastRightKeyDownTime <= 250) this.p1PhaseWarpTriggered = 1;
+          this.p1LastRightKeyDownTime = now;
+        }
+      }
+      if (this.isP1UpKey(e.code, e.key)) this.stateP1.moveUp = true;
+      if (this.isP1DownKey(e.code, e.key)) this.stateP1.moveDown = true;
+      if (this.isP1FireKey(e.code, e.key)) {
+        this.stateP1.fire = true;
+        if (!isRepeat) this.p1FireTriggered = true;
+      }
+      if (this.isP1SpecialKey(e.code, e.key) && !isRepeat) this.p1SpecialTriggered = true;
+      if (this.isP1CycleSpecialKey(e.code, e.key) && !isRepeat) this.p1CycleSpecialTriggered = true;
+      if (this.isP1DonateKey(e.code, e.key) && !isRepeat) this.p1DonateTriggered = true;
+      if (e.code === 'ShiftLeft' && !isRepeat) {
+        this.p1PhaseWarpTriggered = this.stateP1.moveLeft ? -1 : 1;
+      }
 
-    // Cycle Special Move (KeyC / c / C)
-    if (this.isCycleSpecialKey(e.code, e.key)) {
-      if (!isRepeat) {
-        this.cycleSpecialTriggered = true;
+      // Co-op Mode: P2
+      if (this.isP2LeftKey(e.code, e.key)) {
+        this.stateP2.moveLeft = true;
+        this.stateP2.pointerActive = false;
+        if (!isRepeat) {
+          const now = performance.now();
+          if (now - this.p2LastLeftKeyDownTime <= 250) this.p2PhaseWarpTriggered = -1;
+          this.p2LastLeftKeyDownTime = now;
+        }
+      }
+      if (this.isP2RightKey(e.code, e.key)) {
+        this.stateP2.moveRight = true;
+        this.stateP2.pointerActive = false;
+        if (!isRepeat) {
+          const now = performance.now();
+          if (now - this.p2LastRightKeyDownTime <= 250) this.p2PhaseWarpTriggered = 1;
+          this.p2LastRightKeyDownTime = now;
+        }
+      }
+      if (this.isP2UpKey(e.code, e.key)) this.stateP2.moveUp = true;
+      if (this.isP2DownKey(e.code, e.key)) this.stateP2.moveDown = true;
+      if (this.isP2FireKey(e.code, e.key)) {
+        this.stateP2.fire = true;
+        if (!isRepeat) this.p2FireTriggered = true;
+      }
+      if (this.isP2SpecialKey(e.code, e.key) && !isRepeat) this.p2SpecialTriggered = true;
+      if (this.isP2DonateKey(e.code, e.key) && !isRepeat) this.p2DonateTriggered = true;
+      if (e.code === 'ShiftRight' && !isRepeat) {
+        this.p2PhaseWarpTriggered = this.stateP2.moveLeft ? -1 : 1;
       }
     }
   }
 
-  private handleKeyUp(e: KeyboardEvent): void {
+  public handleKeyUp(e: KeyboardEvent): void {
     this.activeKeys.delete(e.code);
     this.activeKeys.delete(e.key);
 
-    // Update Left state
-    if (this.isLeftKey(e.code, e.key)) {
-      if (!this.isAnyLeftKeyPressed() && !this.state.touchLeft) {
-        this.state.moveLeft = false;
-      }
-    }
-
-    // Update Right state
-    if (this.isRightKey(e.code, e.key)) {
-      if (!this.isAnyRightKeyPressed() && !this.state.touchRight) {
-        this.state.moveRight = false;
-      }
-    }
-
-    // Update Fire state
-    if (this.isFireKey(e.code, e.key)) {
-      if (!this.isAnyFireKeyPressed() && !this.state.touchFire) {
-        this.state.fire = false;
-      }
-    }
-
-    // Update Pause state
     if (this.isPauseKey(e.code, e.key)) {
       this.state.pause = false;
+      this.stateP1.pause = false;
+      this.stateP2.pause = false;
     }
-
-    // Update Restart state
     if (this.isRestartKey(e.code, e.key)) {
       this.state.restart = false;
+      this.stateP1.restart = false;
+      this.stateP2.restart = false;
+    }
+
+    if (this.mode === 'single') {
+      if (this.isLeftKey(e.code, e.key) && !this.isAnyLeftKeyPressed() && !this.state.touchLeft) this.state.moveLeft = false;
+      if (this.isRightKey(e.code, e.key) && !this.isAnyRightKeyPressed() && !this.state.touchRight) this.state.moveRight = false;
+      if (this.isUpKey(e.code, e.key) && !this.isAnyUpKeyPressed()) this.state.moveUp = false;
+      if (this.isDownKey(e.code, e.key) && !this.isAnyDownKeyPressed()) this.state.moveDown = false;
+      if (this.isFireKey(e.code, e.key) && !this.isAnyFireKeyPressed() && !this.state.touchFire) this.state.fire = false;
+    } else {
+      if (this.isP1LeftKey(e.code, e.key) && !this.isAnyP1LeftKeyPressed() && !this.stateP1.touchLeft) this.stateP1.moveLeft = false;
+      if (this.isP1RightKey(e.code, e.key) && !this.isAnyP1RightKeyPressed() && !this.stateP1.touchRight) this.stateP1.moveRight = false;
+      if (this.isP1UpKey(e.code, e.key) && !this.isAnyP1UpKeyPressed()) this.stateP1.moveUp = false;
+      if (this.isP1DownKey(e.code, e.key) && !this.isAnyP1DownKeyPressed()) this.stateP1.moveDown = false;
+      if (this.isP1FireKey(e.code, e.key) && !this.isAnyP1FireKeyPressed() && !this.stateP1.touchFire) this.stateP1.fire = false;
+
+      if (this.isP2LeftKey(e.code, e.key) && !this.isAnyP2LeftKeyPressed() && !this.stateP2.touchLeft) this.stateP2.moveLeft = false;
+      if (this.isP2RightKey(e.code, e.key) && !this.isAnyP2RightKeyPressed() && !this.stateP2.touchRight) this.stateP2.moveRight = false;
+      if (this.isP2UpKey(e.code, e.key) && !this.isAnyP2UpKeyPressed()) this.stateP2.moveUp = false;
+      if (this.isP2DownKey(e.code, e.key) && !this.isAnyP2DownKeyPressed()) this.stateP2.moveDown = false;
+      if (this.isP2FireKey(e.code, e.key) && !this.isAnyP2FireKeyPressed() && !this.stateP2.touchFire) this.stateP2.fire = false;
     }
   }
 
@@ -632,6 +917,21 @@ export class InputHandler {
     this.fireTriggered = true;
     this.restartTriggered = true;
     this.updatePointerCoordinates(e.clientX, e.clientY);
+
+    // Save tap coordinate for title screen mode selection
+    if (this.screenManager) {
+      const virtual = this.screenManager.clientToVirtual(e.clientX, e.clientY, true);
+      if (virtual) {
+        this.lastPointerTapVirtual = { x: virtual.x, y: virtual.y };
+      }
+    } else if (this.canvas && this.canvas.getBoundingClientRect) {
+      const rect = this.canvas.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        const vx = ((e.clientX - rect.left) / rect.width) * 224;
+        const vy = ((e.clientY - rect.top) / rect.height) * 288;
+        this.lastPointerTapVirtual = { x: vx, y: vy };
+      }
+    }
   }
 
   private handlePointerMove(e: PointerEvent): void {
@@ -663,16 +963,17 @@ export class InputHandler {
     if (this.screenManager) {
       const virtual = this.screenManager.clientToVirtual(clientX, clientY, true);
       if (virtual) {
-        this.state.pointerX = Math.max(8, Math.min(216, virtual.x));
+        const clampedX = Math.max(8, Math.min(216, virtual.x));
+        this.state.pointerX = clampedX;
         this.state.pointerActive = true;
       }
     } else if (this.canvas && this.canvas.getBoundingClientRect) {
-      // Fallback calculation using canvas bounding client rect
       const rect = this.canvas.getBoundingClientRect();
       if (rect.width > 0) {
         const normalizedX = (clientX - rect.left) / rect.width;
         const virtualX = normalizedX * 224;
-        this.state.pointerX = Math.max(8, Math.min(216, virtualX));
+        const clampedX = Math.max(8, Math.min(216, virtualX));
+        this.state.pointerX = clampedX;
         this.state.pointerActive = true;
       }
     }
@@ -692,31 +993,110 @@ export class InputHandler {
     const windowW = typeof window !== 'undefined' ? window.innerWidth : 375;
     const windowH = typeof window !== 'undefined' ? window.innerHeight : 667;
 
-    for (let i = 0; i < e.changedTouches.length; i++) {
-      const touch = e.changedTouches[i];
-      if (!touch) continue;
+    // Record first touch coordinates for title screen mode selection
+    if (e.changedTouches.length > 0 && e.changedTouches[0]) {
+      const firstTouch = e.changedTouches[0];
+      if (this.screenManager) {
+        const virt = this.screenManager.clientToVirtual(firstTouch.clientX, firstTouch.clientY, true);
+        if (virt) {
+          this.lastPointerTapVirtual = { x: virt.x, y: virt.y };
+        }
+      } else if (rect && rect.width > 0 && rect.height > 0) {
+        const vx = ((firstTouch.clientX - rect.left) / rect.width) * 224;
+        const vy = ((firstTouch.clientY - rect.top) / rect.height) * 288;
+        this.lastPointerTapVirtual = { x: vx, y: vy };
+      }
+    }
 
-      const clientX = touch.clientX;
-      const clientY = touch.clientY;
+    if (this.mode === 'single') {
+      // Single-player legacy touch handling
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const touch = e.changedTouches[i];
+        if (!touch) continue;
 
-      // Virtual fire button zone check (Bottom right 35% of viewport or canvas)
-      const isFireZone =
-        (clientX > windowW * 0.65 && clientY > windowH * 0.6) ||
-        (rect && rect.width > 0 && clientX > rect.left + rect.width * 0.65 && clientY > rect.top + rect.height * 0.6);
+        const clientX = touch.clientX;
+        const clientY = touch.clientY;
 
-      if (isFireZone) {
-        this.touchIdFire = touch.identifier;
-        this.state.touchFire = true;
-        this.state.fire = true;
-        this.fireTriggered = true;
-        this.restartTriggered = true;
-        this.triggerHaptic(15);
-      } else {
-        // Steering touch zone
-        this.touchIdMove = touch.identifier;
-        this.updatePointerCoordinates(clientX, clientY);
-        this.updateTouchSteering(clientX, rect, windowW);
-        this.triggerHaptic(8);
+        const isFireZone =
+          (clientX > windowW * 0.65 && clientY > windowH * 0.6) ||
+          (rect && rect.width > 0 && clientX > rect.left + rect.width * 0.65 && clientY > rect.top + rect.height * 0.6);
+
+        if (isFireZone) {
+          this.touchIdFire = touch.identifier;
+          this.state.touchFire = true;
+          this.state.fire = true;
+          this.fireTriggered = true;
+          this.restartTriggered = true;
+          this.triggerHaptic(15);
+        } else {
+          this.touchIdMove = touch.identifier;
+          this.updatePointerCoordinates(clientX, clientY);
+          this.updateTouchSteering(clientX, rect, windowW);
+          this.triggerHaptic(8);
+        }
+      }
+    } else {
+      // Co-op Mode: Split-Screen Touch with Session Isolation
+      const midX = rect && rect.width > 0 ? rect.left + rect.width / 2 : windowW / 2;
+
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const touch = e.changedTouches[i];
+        if (!touch) continue;
+
+        const clientX = touch.clientX;
+        const clientY = touch.clientY;
+
+        // Player allocation based on contact coordinate
+        const playerId: 'p1' | 'p2' = clientX < midX ? 'p1' : 'p2';
+        const hLeft = playerId === 'p1' ? (rect && rect.width > 0 ? rect.left : 0) : midX;
+        const hWidth = (rect && rect.width > 0 ? rect.width : windowW) / 2;
+        const hTop = rect && rect.height > 0 ? rect.top : 0;
+        const hHeight = rect && rect.height > 0 ? rect.height : windowH;
+
+        // Sub-zone check
+        const isActionZone = clientX >= hLeft + hWidth * 0.65;
+        let role: 'steer' | 'fire' | 'special' = 'steer';
+
+        if (isActionZone) {
+          if (clientY < hTop + hHeight * 0.55) {
+            role = 'special';
+            if (playerId === 'p1') {
+              this.p1SpecialTriggered = true;
+            } else {
+              this.p2SpecialTriggered = true;
+            }
+            this.triggerHaptic(20);
+          } else {
+            role = 'fire';
+            if (playerId === 'p1') {
+              this.stateP1.touchFire = true;
+              this.stateP1.fire = true;
+              this.p1FireTriggered = true;
+            } else {
+              this.stateP2.touchFire = true;
+              this.stateP2.fire = true;
+              this.p2FireTriggered = true;
+            }
+            this.triggerHaptic(15);
+          }
+        } else {
+          role = 'steer';
+          this.triggerHaptic(8);
+        }
+
+        const session: PlayerTouchSession = {
+          id: touch.identifier,
+          playerId,
+          role,
+          startX: clientX,
+          startY: clientY,
+          currentX: clientX,
+          currentY: clientY,
+          startTime: performance.now(),
+          lastUpdateTime: performance.now(),
+        };
+
+        this.touchSessions.set(touch.identifier, session);
       }
     }
   }
@@ -729,13 +1109,56 @@ export class InputHandler {
     const rect = this.canvas && this.canvas.getBoundingClientRect ? this.canvas.getBoundingClientRect() : null;
     const windowW = typeof window !== 'undefined' ? window.innerWidth : 375;
 
-    for (let i = 0; i < e.changedTouches.length; i++) {
-      const touch = e.changedTouches[i];
-      if (!touch) continue;
+    if (this.mode === 'single') {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const touch = e.changedTouches[i];
+        if (!touch) continue;
 
-      if (touch.identifier === this.touchIdMove) {
-        this.updatePointerCoordinates(touch.clientX, touch.clientY);
-        this.updateTouchSteering(touch.clientX, rect, windowW);
+        if (touch.identifier === this.touchIdMove) {
+          this.updatePointerCoordinates(touch.clientX, touch.clientY);
+          this.updateTouchSteering(touch.clientX, rect, windowW);
+        }
+      }
+    } else {
+      // Co-op mode: updates existing sessions without player crossing
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const touch = e.changedTouches[i];
+        if (!touch) continue;
+
+        const session = this.touchSessions.get(touch.identifier);
+        if (!session) continue;
+
+        session.currentX = touch.clientX;
+        session.currentY = touch.clientY;
+        session.lastUpdateTime = performance.now();
+
+        if (session.role === 'steer') {
+          const deltaX = touch.clientX - session.startX;
+          const deadzone = 10;
+          const targetState = session.playerId === 'p2' ? this.stateP2 : this.stateP1;
+
+          if (deltaX < -deadzone) {
+            targetState.touchLeft = true;
+            targetState.touchRight = false;
+            targetState.moveLeft = true;
+            targetState.moveRight = false;
+          } else if (deltaX > deadzone) {
+            targetState.touchRight = true;
+            targetState.touchLeft = false;
+            targetState.moveRight = true;
+            targetState.moveLeft = false;
+          } else {
+            targetState.touchLeft = false;
+            targetState.touchRight = false;
+            if (session.playerId === 'p1') {
+              if (!this.isAnyP1LeftKeyPressed()) targetState.moveLeft = false;
+              if (!this.isAnyP1RightKeyPressed()) targetState.moveRight = false;
+            } else {
+              if (!this.isAnyP2LeftKeyPressed()) targetState.moveLeft = false;
+              if (!this.isAnyP2RightKeyPressed()) targetState.moveRight = false;
+            }
+          }
+        }
       }
     }
   }
@@ -745,25 +1168,63 @@ export class InputHandler {
       e.preventDefault();
     }
 
-    for (let i = 0; i < e.changedTouches.length; i++) {
-      const touch = e.changedTouches[i];
-      if (!touch) continue;
+    if (this.mode === 'single') {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const touch = e.changedTouches[i];
+        if (!touch) continue;
 
-      if (touch.identifier === this.touchIdFire) {
-        this.touchIdFire = null;
-        this.state.touchFire = false;
-        if (!this.isAnyFireKeyPressed()) {
-          this.state.fire = false;
+        if (touch.identifier === this.touchIdFire) {
+          this.touchIdFire = null;
+          this.state.touchFire = false;
+          if (!this.isAnyFireKeyPressed()) {
+            this.state.fire = false;
+          }
+        }
+
+        if (touch.identifier === this.touchIdMove) {
+          this.touchIdMove = null;
+          this.state.touchLeft = false;
+          this.state.touchRight = false;
+          if (!this.isAnyLeftKeyPressed()) {
+            this.state.moveLeft = false;
+          }
+          if (!this.isAnyRightKeyPressed()) {
+            this.state.moveRight = false;
+          }
+          this.state.pointerActive = false;
         }
       }
+    } else {
+      // Co-op mode: end specific touch session
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const touch = e.changedTouches[i];
+        if (!touch) continue;
 
-      if (touch.identifier === this.touchIdMove) {
-        this.touchIdMove = null;
-        this.state.touchLeft = false;
-        this.state.touchRight = false;
-        if (!this.isAnyLeftKeyPressed()) this.state.moveLeft = false;
-        if (!this.isAnyRightKeyPressed()) this.state.moveRight = false;
-        this.state.pointerActive = false;
+        const session = this.touchSessions.get(touch.identifier);
+        if (!session) continue;
+
+        const targetState = session.playerId === 'p2' ? this.stateP2 : this.stateP1;
+
+        if (session.role === 'fire') {
+          targetState.touchFire = false;
+          if (session.playerId === 'p1') {
+            if (!this.isAnyP1FireKeyPressed()) targetState.fire = false;
+          } else {
+            if (!this.isAnyP2FireKeyPressed()) targetState.fire = false;
+          }
+        } else if (session.role === 'steer') {
+          targetState.touchLeft = false;
+          targetState.touchRight = false;
+          if (session.playerId === 'p1') {
+            if (!this.isAnyP1LeftKeyPressed()) targetState.moveLeft = false;
+            if (!this.isAnyP1RightKeyPressed()) targetState.moveRight = false;
+          } else {
+            if (!this.isAnyP2LeftKeyPressed()) targetState.moveLeft = false;
+            if (!this.isAnyP2RightKeyPressed()) targetState.moveRight = false;
+          }
+        }
+
+        this.touchSessions.delete(touch.identifier);
       }
     }
   }
@@ -830,109 +1291,48 @@ export class InputHandler {
     }
   }
 
-  // ==========================================================================
-  // Key Matcher Helpers
-  // ==========================================================================
-
-  private isLeftKey(code: string, key: string): boolean {
-    return (
-      code === 'ArrowLeft' ||
-      code === 'KeyA' ||
-      key === 'ArrowLeft' ||
-      key === 'a' ||
-      key === 'A'
-    );
+  private isSelect1PKey(c: string, k: string): boolean { return c === 'Digit1' || c === 'Numpad1' || k === '1'; }
+  private isSelect2PKey(c: string, k: string): boolean { return c === 'Digit2' || c === 'Numpad2' || k === '2'; }
+  private isP1LeftKey(c: string, k: string): boolean { return c === 'KeyA' || k === 'a' || k === 'A'; }
+  private isP1RightKey(c: string, k: string): boolean { return c === 'KeyD' || k === 'd' || k === 'D'; }
+  private isP1UpKey(c: string, k: string): boolean { return c === 'KeyW' || k === 'w' || k === 'W'; }
+  private isP1DownKey(c: string, k: string): boolean { return c === 'KeyS' || k === 's' || k === 'S'; }
+  private isP1FireKey(c: string, k: string): boolean { return c === 'Space' || k === ' '; }
+  private isP1SpecialKey(c: string, k: string): boolean { return c === 'KeyX' || k === 'x' || k === 'X'; }
+  private isP1CycleSpecialKey(c: string, k: string): boolean { return c === 'KeyC' || k === 'c' || k === 'C'; }
+  private isP1DonateKey(c: string, k: string): boolean { return c === 'KeyL' || k === 'l' || k === 'L'; }
+  private isP2LeftKey(c: string, k: string): boolean { return c === 'ArrowLeft' || k === 'ArrowLeft'; }
+  private isP2RightKey(c: string, k: string): boolean { return c === 'ArrowRight' || k === 'ArrowRight'; }
+  private isP2UpKey(c: string, k: string): boolean { return c === 'ArrowUp' || k === 'ArrowUp'; }
+  private isP2DownKey(c: string, k: string): boolean { return c === 'ArrowDown' || k === 'ArrowDown'; }
+  private isP2FireKey(c: string, k: string): boolean { return c === 'Enter' || c === 'Numpad0' || k === 'Enter'; }
+  private isP2SpecialKey(c: string, k: string): boolean { return c === 'KeyM' || k === 'm' || k === 'M' || c === 'ShiftRight'; }
+  private isP2DonateKey(c: string, k: string): boolean {
+    return c === 'NumpadDecimal' || c === 'Period' || k === '.' || c === 'KeyO' || k === 'o' || k === 'O' || c === 'KeyL' || k === 'l' || k === 'L';
   }
-
-  private isRightKey(code: string, key: string): boolean {
-    return (
-      code === 'ArrowRight' ||
-      code === 'KeyD' ||
-      key === 'ArrowRight' ||
-      key === 'd' ||
-      key === 'D'
-    );
-  }
-
-  private isFireKey(code: string, key: string): boolean {
-    return (
-      code === 'Space' ||
-      code === 'KeyZ' ||
-      code === 'KeyK' ||
-      code === 'KeyJ' ||
-      key === ' ' ||
-      key === 'z' ||
-      key === 'Z' ||
-      key === 'k' ||
-      key === 'K' ||
-      key === 'j' ||
-      key === 'J'
-    );
-  }
-
-  private isPauseKey(code: string, key: string): boolean {
-    return (
-      code === 'KeyP' ||
-      code === 'Escape' ||
-      key === 'p' ||
-      key === 'P' ||
-      key === 'Escape'
-    );
-  }
-
-  private isRestartKey(code: string, key: string): boolean {
-    return (
-      code === 'Enter' ||
-      code === 'KeyR' ||
-      key === 'Enter' ||
-      key === 'r' ||
-      key === 'R'
-    );
-  }
-
-  public isSpecialKey(code: string, key: string): boolean {
-    return (
-      code === 'KeyX' ||
-      code === 'KeyV' ||
-      key === 'x' ||
-      key === 'X' ||
-      key === 'v' ||
-      key === 'V'
-    );
-  }
-
-  public isCycleSpecialKey(code: string, key: string): boolean {
-    return (
-      code === 'KeyC' ||
-      key === 'c' ||
-      key === 'C'
-    );
-  }
-
-  public isShiftKey(code: string, key: string): boolean {
-    return code === 'ShiftLeft' || code === 'ShiftRight' || key === 'Shift';
-  }
-
-  private isAnyLeftKeyPressed(): boolean {
-    return (
-      this.activeKeys.has('ArrowLeft') ||
-      this.activeKeys.has('KeyA') ||
-      this.activeKeys.has('a') ||
-      this.activeKeys.has('A')
-    );
-  }
-
-  private isAnyRightKeyPressed(): boolean {
-    return (
-      this.activeKeys.has('ArrowRight') ||
-      this.activeKeys.has('KeyD') ||
-      this.activeKeys.has('d') ||
-      this.activeKeys.has('D')
-    );
-  }
-
-  private isAnyFireKeyPressed(): boolean {
-    const fireKeys = ['Space', ' ', 'KeyZ', 'z', 'Z', 'KeyK', 'k', 'K', 'KeyJ', 'j', 'J'];
-    return fireKeys.some((k) => this.activeKeys.has(k));
-  }
+  private isAnyP1LeftKeyPressed(): boolean { return this.activeKeys.has('KeyA') || this.activeKeys.has('a') || this.activeKeys.has('A'); }
+  private isAnyP1RightKeyPressed(): boolean { return this.activeKeys.has('KeyD') || this.activeKeys.has('d') || this.activeKeys.has('D'); }
+  private isAnyP1UpKeyPressed(): boolean { return this.activeKeys.has('KeyW') || this.activeKeys.has('w') || this.activeKeys.has('W'); }
+  private isAnyP1DownKeyPressed(): boolean { return this.activeKeys.has('KeyS') || this.activeKeys.has('s') || this.activeKeys.has('S'); }
+  private isAnyP1FireKeyPressed(): boolean { return this.activeKeys.has('Space') || this.activeKeys.has(' '); }
+  private isAnyP2LeftKeyPressed(): boolean { return this.activeKeys.has('ArrowLeft'); }
+  private isAnyP2RightKeyPressed(): boolean { return this.activeKeys.has('ArrowRight'); }
+  private isAnyP2UpKeyPressed(): boolean { return this.activeKeys.has('ArrowUp'); }
+  private isAnyP2DownKeyPressed(): boolean { return this.activeKeys.has('ArrowDown'); }
+  private isAnyP2FireKeyPressed(): boolean { return this.activeKeys.has('Enter') || this.activeKeys.has('Numpad0'); }
+  private isLeftKey(c: string, k: string): boolean { return c === 'ArrowLeft' || c === 'KeyA' || k === 'ArrowLeft' || k === 'a' || k === 'A'; }
+  private isRightKey(c: string, k: string): boolean { return c === 'ArrowRight' || c === 'KeyD' || k === 'ArrowRight' || k === 'd' || k === 'D'; }
+  private isUpKey(c: string, k: string): boolean { return c === 'ArrowUp' || c === 'KeyW' || k === 'ArrowUp' || k === 'w' || k === 'W'; }
+  private isDownKey(c: string, k: string): boolean { return c === 'ArrowDown' || c === 'KeyS' || k === 'ArrowDown' || k === 's' || k === 'S'; }
+  private isFireKey(c: string, k: string): boolean { return c === 'Space' || c === 'Enter' || c === 'Numpad0' || c === 'KeyZ' || c === 'KeyK' || c === 'KeyJ' || k === ' ' || k === 'Enter' || k === 'z' || k === 'Z' || k === 'k' || k === 'K' || k === 'j' || k === 'J'; }
+  private isPauseKey(c: string, k: string): boolean { return c === 'KeyP' || c === 'Escape' || k === 'p' || k === 'P' || k === 'Escape'; }
+  private isRestartKey(c: string, k: string): boolean { return c === 'Enter' || c === 'KeyR' || k === 'Enter' || k === 'r' || k === 'R'; }
+  public isSpecialKey(c: string, k: string): boolean { return c === 'KeyX' || c === 'KeyV' || c === 'KeyM' || k === 'x' || k === 'X' || k === 'v' || k === 'V' || k === 'm' || k === 'M'; }
+  public isCycleSpecialKey(c: string, k: string): boolean { return c === 'KeyC' || k === 'c' || k === 'C'; }
+  public isShiftKey(c: string, k: string): boolean { return c === 'ShiftLeft' || c === 'ShiftRight' || k === 'Shift'; }
+  private isAnyLeftKeyPressed(): boolean { return this.activeKeys.has('ArrowLeft') || this.activeKeys.has('KeyA') || this.activeKeys.has('a') || this.activeKeys.has('A'); }
+  private isAnyRightKeyPressed(): boolean { return this.activeKeys.has('ArrowRight') || this.activeKeys.has('KeyD') || this.activeKeys.has('d') || this.activeKeys.has('D'); }
+  private isAnyUpKeyPressed(): boolean { return this.activeKeys.has('ArrowUp') || this.activeKeys.has('KeyW') || this.activeKeys.has('w') || this.activeKeys.has('W'); }
+  private isAnyDownKeyPressed(): boolean { return this.activeKeys.has('ArrowDown') || this.activeKeys.has('KeyS') || this.activeKeys.has('s') || this.activeKeys.has('S'); }
+  private isAnyFireKeyPressed(): boolean { return ['Space', ' ', 'Enter', 'Numpad0', 'KeyZ', 'z', 'Z', 'KeyK', 'k', 'K', 'KeyJ', 'j', 'J'].some(k => this.activeKeys.has(k)); }
 }

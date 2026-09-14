@@ -17,6 +17,8 @@ import { DifficultyCalculator, type StageDifficultyConfig } from './DifficultyCa
 import { ObjectPool } from '../core/ObjectPool';
 import type { DynamicDifficultyManager } from './DynamicDifficultyManager';
 import { PhantomClone } from '../core/glitch/PhantomClone';
+import type { Player } from '../entities/Player';
+import type { PlayerManager } from './PlayerManager';
 
 export interface FormationManagerConfig {
   onEnemyFire?: (request: EnemyBulletRequest) => void;
@@ -26,6 +28,8 @@ export interface FormationManagerConfig {
   onSpawnBoss?: (stage: number) => Enemy[];
   dynamicDifficultyManager?: DynamicDifficultyManager;
   glitchEventManager?: any;
+  isCoop?: boolean | (() => boolean);
+  playerManager?: PlayerManager;
 }
 
 export class FormationManager {
@@ -79,6 +83,19 @@ export class FormationManager {
   public onTractorBeamRequest?: (boss: Enemy) => void;
   public onSpawnBoss?: (stage: number) => Enemy[];
   public dynamicDifficultyManager?: DynamicDifficultyManager;
+  public playerManager?: PlayerManager;
+  private _isCoop: boolean | (() => boolean) = false;
+
+  public isCoop(): boolean {
+    if (typeof this._isCoop === 'function') {
+      return this._isCoop();
+    }
+    return Boolean(this._isCoop);
+  }
+
+  public setCoop(coop: boolean | (() => boolean)): void {
+    this._isCoop = coop;
+  }
 
   constructor(config?: FormationManagerConfig) {
     if (config) {
@@ -89,6 +106,12 @@ export class FormationManager {
       this.onSpawnBoss = config.onSpawnBoss;
       this.dynamicDifficultyManager = config.dynamicDifficultyManager;
       this.glitchEventManager = config.glitchEventManager;
+      if (config.isCoop !== undefined) {
+        this._isCoop = config.isCoop;
+      }
+      if (config.playerManager !== undefined) {
+        this.playerManager = config.playerManager;
+      }
     }
 
     this.enemyPool = new ObjectPool<Enemy>({
@@ -124,7 +147,9 @@ export class FormationManager {
     if (this.isChallengingStage) {
       return 1.0;
     }
-    return this.dynamicDifficultyManager ? this.dynamicDifficultyManager.getBulletDensityMultiplier() : 1.0;
+    const coopMult = this.isCoop() ? 1.25 : 1.0;
+    const dda = this.dynamicDifficultyManager ? this.dynamicDifficultyManager.getBulletDensityMultiplier() : 1.0;
+    return coopMult * dda;
   }
 
   // ==========================================================================
@@ -278,7 +303,9 @@ export class FormationManager {
     this.stageConfig = DifficultyCalculator.getStageConfig(stage);
 
     this.diveInterval = this.stageConfig.diveInterval;
-    this.maxConcurrentDivers = this.stageConfig.maxConcurrentDivers;
+    this.maxConcurrentDivers = this.isCoop()
+      ? DifficultyCalculator.getCoopMaxConcurrentDivers(this.stageConfig.maxConcurrentDivers)
+      : this.stageConfig.maxConcurrentDivers;
     this.diveSpeedMultiplier = this.stageConfig.diveSpeedMultiplier;
     this.bulletSpeed = this.stageConfig.enemyBulletSpeed;
     this.isChallengingStage = this.stageConfig.isChallengingStage;
@@ -334,7 +361,7 @@ export class FormationManager {
         this.stageConfig.tier
       );
 
-      const { health, shield } = DifficultyCalculator.getEnemyHealthAndShield(stage, slot.type);
+      const { health, shield } = DifficultyCalculator.getEnemyHealthAndShield(stage, slot.type, this.isCoop());
       enemy.setDifficulty(health, shield, this.stageConfig.tier, this.getEffectiveDiveSpeedMultiplier());
       enemy.onFireBullet = (req) => this.onEnemyFire?.(req);
       enemy.onExplode = () => {};
@@ -685,6 +712,35 @@ export class FormationManager {
     this.triggerDiveAttack(playerX, playerIsDual);
   }
 
+  public selectTractorBeamTarget(boss: Enemy): Player | null {
+    if (!this.playerManager) {
+      return null;
+    }
+    const living = this.playerManager.getLivingPlayers();
+    if (living.length === 0) return null;
+
+    // Candidates: living players with !p.isDual && !p.isInvulnerable() && (p.state === 'normal' || p.state === 'ALIVE')
+    const candidates = living.filter(
+      (p) => !p.isDual && !p.isInvulnerable() && (p.state === 'normal' || (p.state as any) === 'ALIVE')
+    );
+    // If both players are Dual (or none eligible): returns null (tractor dive suppressed!)
+    if (candidates.length === 0) return null;
+
+    // Otherwise returns candidate with minimum |boss.x - p.x|
+    let bestPlayer: Player = candidates[0]!;
+    let minDx = Math.abs(boss.x - bestPlayer.x);
+
+    for (let i = 1; i < candidates.length; i++) {
+      const p = candidates[i]!;
+      const dx = Math.abs(boss.x - p.x);
+      if (dx < minDx) {
+        minDx = dx;
+        bestPlayer = p;
+      }
+    }
+    return bestPlayer;
+  }
+
   private triggerDiveAttack(playerX: number, playerIsDual: boolean = false): void {
     const formationEnemies = this.enemies.filter(
       (e) => e.active && e.state === EnemyState.IN_FORMATION
@@ -693,20 +749,22 @@ export class FormationManager {
     if (formationEnemies.length === 0) return;
 
     // Stage 2+ Tractor Beam Dive Chance (against Single Fighter only, max 1 active beam)
-    const shouldAttemptTractor =
-      this.stage >= 2 &&
-      !playerIsDual &&
-      !this.isTractorBeamActive() &&
-      Math.random() < 0.35;
-
-    if (shouldAttemptTractor) {
+    if (this.stage >= 2 && !this.isTractorBeamActive() && Math.random() < 0.35) {
       const eligibleBosses = formationEnemies.filter(
         (e) => e.type === EnemyType.BOSS && !e.hasCapturedFighter && e.health >= 1
       );
       if (eligibleBosses.length > 0) {
         const boss = eligibleBosses[Math.floor(Math.random() * eligibleBosses.length)]!;
-        this.launchTractorBeamDive(boss, playerX);
-        return;
+        if (this.isCoop() && this.playerManager) {
+          const targetPlayer = this.selectTractorBeamTarget(boss);
+          if (targetPlayer) {
+            this.launchTractorBeamDive(boss, targetPlayer.x);
+            return;
+          }
+        } else if (!playerIsDual) {
+          this.launchTractorBeamDive(boss, playerX);
+          return;
+        }
       }
     }
 

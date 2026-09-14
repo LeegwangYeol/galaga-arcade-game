@@ -31,8 +31,23 @@ export class PowerUpManager {
   private pool: ObjectPool<PowerUpItem>;
   private nextItemId: number = 1;
 
-  // Active Upgrade Buff State
+  // Active Upgrade Buff State (P1 Classic)
   public buffState: ActiveBuffState = {
+    rapidFireTimer: 0,
+    scatterShotTimer: 0,
+    engineBoosterTimer: 0,
+    hasShield: false,
+    empBombCount: 0,
+    chronoFieldTimer: 0,
+    reflectionShieldTimer: 0,
+    hasReflectionShield: false,
+    empCollectorTimer: 0,
+    phaseDriveTimer: 0,
+    plasmaBlasterTimer: 0,
+  };
+
+  // Active Upgrade Buff State (P2 Crimson/Amber)
+  public p2BuffState: ActiveBuffState = {
     rapidFireTimer: 0,
     scatterShotTimer: 0,
     engineBoosterTimer: 0,
@@ -294,7 +309,7 @@ export class PowerUpManager {
   /**
    * Updates falling items and decrements active buff countdown timers.
    */
-  public update(dt: number, player?: Player): void {
+  public update(dt: number, player?: Player | Player[]): void {
     // 1. Update falling items
     this.pool.forEachActiveSafe((item) => {
       const alive = item.update(dt);
@@ -306,69 +321,107 @@ export class PowerUpManager {
 
     this.stats.activeCount = this.pool.getActiveCount();
 
-    // 2. Decrement active buff timers (unless player is in capture sequence)
-    const isPaused = player && (player.state === 'capturing' || player.state === 'CAPTURING');
-    if (!isPaused) {
-      if (this.buffState.rapidFireTimer > 0) {
-        this.buffState.rapidFireTimer = Math.max(0, this.buffState.rapidFireTimer - dt);
-      }
-      if (this.buffState.scatterShotTimer > 0) {
-        this.buffState.scatterShotTimer = Math.max(0, this.buffState.scatterShotTimer - dt);
-      }
-      if (this.buffState.engineBoosterTimer > 0) {
-        this.buffState.engineBoosterTimer = Math.max(0, this.buffState.engineBoosterTimer - dt);
-      }
-      if (this.buffState.chronoFieldTimer > 0) {
-        this.buffState.chronoFieldTimer = Math.max(0, this.buffState.chronoFieldTimer - dt);
-      }
-      if (this.buffState.reflectionShieldTimer > 0) {
-        this.buffState.reflectionShieldTimer = Math.max(0, this.buffState.reflectionShieldTimer - dt);
-        if (this.buffState.reflectionShieldTimer <= 0) {
-          this.buffState.hasReflectionShield = false;
+    // 2. Synchronize and decrement player active buff timers
+    if (Array.isArray(player)) {
+      let hasP1 = false;
+      let hasP2 = false;
+      for (const p of player) {
+        if (p.id === 'p2') {
+          hasP2 = true;
+          this.updatePlayerBuffState(dt, p, this.p2BuffState);
+        } else {
+          hasP1 = true;
+          this.updatePlayerBuffState(dt, p, this.buffState);
         }
       }
-      if (this.buffState.empCollectorTimer > 0) {
-        this.buffState.empCollectorTimer = Math.max(0, this.buffState.empCollectorTimer - dt);
+      if (!hasP1) {
+        this.decrementBuffState(dt, this.buffState);
       }
-      if (this.buffState.phaseDriveTimer > 0) {
-        this.buffState.phaseDriveTimer = Math.max(0, this.buffState.phaseDriveTimer - dt);
+      if (!hasP2) {
+        this.decrementBuffState(dt, this.p2BuffState);
       }
-      if (this.buffState.plasmaBlasterTimer > 0) {
-        this.buffState.plasmaBlasterTimer = Math.max(0, this.buffState.plasmaBlasterTimer - dt);
+    } else if (player) {
+      if (player.id === 'p2') {
+        this.updatePlayerBuffState(dt, player, this.p2BuffState);
+        this.decrementBuffState(dt, this.buffState);
+      } else {
+        this.updatePlayerBuffState(dt, player, this.buffState);
+        this.decrementBuffState(dt, this.p2BuffState);
+      }
+    } else {
+      this.decrementBuffState(dt, this.buffState);
+      this.decrementBuffState(dt, this.p2BuffState);
+    }
+  }
+
+  private decrementBuffState(dt: number, buffState: ActiveBuffState): void {
+    if (buffState.rapidFireTimer > 0) {
+      buffState.rapidFireTimer = Math.max(0, buffState.rapidFireTimer - dt);
+    }
+    if (buffState.scatterShotTimer > 0) {
+      buffState.scatterShotTimer = Math.max(0, buffState.scatterShotTimer - dt);
+    }
+    if (buffState.engineBoosterTimer > 0) {
+      buffState.engineBoosterTimer = Math.max(0, buffState.engineBoosterTimer - dt);
+    }
+    if (buffState.chronoFieldTimer > 0) {
+      buffState.chronoFieldTimer = Math.max(0, buffState.chronoFieldTimer - dt);
+    }
+    if (buffState.reflectionShieldTimer > 0) {
+      buffState.reflectionShieldTimer = Math.max(0, buffState.reflectionShieldTimer - dt);
+      if (buffState.reflectionShieldTimer <= 0) {
+        buffState.hasReflectionShield = false;
       }
     }
+    if (buffState.empCollectorTimer > 0) {
+      buffState.empCollectorTimer = Math.max(0, buffState.empCollectorTimer - dt);
+    }
+    if (buffState.phaseDriveTimer > 0) {
+      buffState.phaseDriveTimer = Math.max(0, buffState.phaseDriveTimer - dt);
+    }
+    if (buffState.plasmaBlasterTimer > 0) {
+      buffState.plasmaBlasterTimer = Math.max(0, buffState.plasmaBlasterTimer - dt);
+    }
+  }
 
-    // Synchronize buff state with player entity if available
-    if (player) {
-      player.rapidFireTimer = this.buffState.rapidFireTimer;
-      player.scatterShotTimer = this.buffState.scatterShotTimer;
-      player.engineBoosterTimer = this.buffState.engineBoosterTimer;
-      player.hasShield = this.buffState.hasShield;
-      player.empBombCount = this.buffState.empBombCount;
+  private updatePlayerBuffState(dt: number, player: Player, buffState: ActiveBuffState): void {
+    const isPaused = player.state === 'capturing' || player.state === 'CAPTURING';
+    if (!isPaused) {
+      this.decrementBuffState(dt, buffState);
+    }
 
-      player.chronoFieldTimer = this.buffState.chronoFieldTimer;
-      player.reflectionShieldTimer = this.buffState.reflectionShieldTimer;
-      if (!this.buffState.hasReflectionShield) {
-        player.hasReflectionShield = false;
-      }
-      player.empCollectorTimer = this.buffState.empCollectorTimer;
-      player.phaseDriveTimer = this.buffState.phaseDriveTimer;
-      player.plasmaBlasterTimer = this.buffState.plasmaBlasterTimer;
+    player.rapidFireTimer = buffState.rapidFireTimer;
+    player.scatterShotTimer = buffState.scatterShotTimer;
+    player.engineBoosterTimer = buffState.engineBoosterTimer;
+    player.hasShield = buffState.hasShield;
+    player.empBombCount = buffState.empBombCount;
 
-      // EMP Collector bullet absorption within 90px
-      if (this.game && (this.buffState.empCollectorTimer > 0 || player.hasEmpCollector)) {
-        this.game.bulletManager.forEachActiveEnemyBullet((bullet) => {
-          const dx = bullet.position.x - player.x;
-          const dy = bullet.position.y - player.y;
-          if (dx * dx + dy * dy <= 8100) {
-            this.game?.bulletManager.recycle(bullet);
+    player.chronoFieldTimer = buffState.chronoFieldTimer;
+    player.reflectionShieldTimer = buffState.reflectionShieldTimer;
+    if (!buffState.hasReflectionShield) {
+      player.hasReflectionShield = false;
+    }
+    player.empCollectorTimer = buffState.empCollectorTimer;
+    player.phaseDriveTimer = buffState.phaseDriveTimer;
+    player.plasmaBlasterTimer = buffState.plasmaBlasterTimer;
+
+    // EMP Collector bullet absorption within 90px
+    if (this.game && (buffState.empCollectorTimer > 0 || player.hasEmpCollector)) {
+      this.game.bulletManager.forEachActiveEnemyBullet((bullet) => {
+        const dx = bullet.position.x - player.x;
+        const dy = bullet.position.y - player.y;
+        if (dx * dx + dy * dy <= 8100) {
+          this.game?.bulletManager.recycle(bullet);
+          if (player.id === 'p2') {
+            this.game?.scoreManager.addScore(50, 'p2');
+          } else {
             this.game?.scoreManager.addScore(50);
-            this.game?.specialMovesManager?.addEnergy(5);
-            this.game?.particleSystem.spawnHitSparks(bullet.position.x, bullet.position.y);
-            this.game?.soundSynth?.playEmpBulletAbsorb?.();
           }
-        });
-      }
+          this.game?.specialMovesManager?.addEnergy(5);
+          this.game?.particleSystem.spawnHitSparks(bullet.position.x, bullet.position.y);
+          this.game?.soundSynth?.playEmpBulletAbsorb?.();
+        }
+      });
     }
   }
 
@@ -418,100 +471,106 @@ export class PowerUpManager {
    * Applies upgrade effects to active buff state and player.
    */
   public applyPowerUp(type: PowerUpType, player: Player): void {
+    const buffState = player.id === 'p2' ? this.p2BuffState : this.buffState;
+
     switch (type) {
       case PowerUpType.RAPID_FIRE:
-        this.buffState.rapidFireTimer = Math.min(
+        buffState.rapidFireTimer = Math.min(
           PowerUpManager.MAX_BUFF_DURATION,
-          this.buffState.rapidFireTimer + PowerUpManager.DEFAULT_BUFF_DURATION
+          buffState.rapidFireTimer + PowerUpManager.DEFAULT_BUFF_DURATION
         );
-        player.rapidFireTimer = this.buffState.rapidFireTimer;
+        player.rapidFireTimer = buffState.rapidFireTimer;
         break;
 
       case PowerUpType.KINETIC_SHIELD:
-        this.buffState.hasShield = true;
+        buffState.hasShield = true;
         player.hasShield = true;
         player.shieldHp = 1;
         break;
 
       case PowerUpType.SCATTER_SHOT:
-        this.buffState.scatterShotTimer = Math.min(
+        buffState.scatterShotTimer = Math.min(
           PowerUpManager.MAX_BUFF_DURATION,
-          this.buffState.scatterShotTimer + PowerUpManager.DEFAULT_BUFF_DURATION
+          buffState.scatterShotTimer + PowerUpManager.DEFAULT_BUFF_DURATION
         );
-        player.scatterShotTimer = this.buffState.scatterShotTimer;
+        player.scatterShotTimer = buffState.scatterShotTimer;
         break;
 
       case PowerUpType.EMP_BOMB:
-        this.detonateEmpBomb();
+        this.detonateEmpBomb(player);
         break;
 
       case PowerUpType.ENGINE_BOOSTER:
-        this.buffState.engineBoosterTimer = Math.min(
+        buffState.engineBoosterTimer = Math.min(
           PowerUpManager.MAX_BUFF_DURATION,
-          this.buffState.engineBoosterTimer + PowerUpManager.DEFAULT_BUFF_DURATION
+          buffState.engineBoosterTimer + PowerUpManager.DEFAULT_BUFF_DURATION
         );
-        player.engineBoosterTimer = this.buffState.engineBoosterTimer;
+        player.engineBoosterTimer = buffState.engineBoosterTimer;
         break;
 
       case PowerUpType.CHRONO_FIELD:
-        this.buffState.chronoFieldTimer = Math.min(
+        buffState.chronoFieldTimer = Math.min(
           PowerUpManager.MAX_BUFF_DURATION,
-          this.buffState.chronoFieldTimer + 6.0
+          buffState.chronoFieldTimer + 6.0
         );
-        player.chronoFieldTimer = this.buffState.chronoFieldTimer;
+        player.chronoFieldTimer = buffState.chronoFieldTimer;
         this.game?.soundSynth?.playChronoFieldActivate?.();
         break;
 
       case PowerUpType.REFLECTION_SHIELD:
-        this.buffState.reflectionShieldTimer = Math.min(
+        buffState.reflectionShieldTimer = Math.min(
           PowerUpManager.MAX_BUFF_DURATION,
-          this.buffState.reflectionShieldTimer + 12.0
+          buffState.reflectionShieldTimer + 12.0
         );
-        this.buffState.hasReflectionShield = true;
-        player.reflectionShieldTimer = this.buffState.reflectionShieldTimer;
+        buffState.hasReflectionShield = true;
+        player.reflectionShieldTimer = buffState.reflectionShieldTimer;
         player.hasReflectionShield = true;
         player.reflectionShieldHp = 3;
         this.game?.soundSynth?.playReflectionDeflect?.();
         break;
 
       case PowerUpType.EMP_COLLECTOR:
-        this.buffState.empCollectorTimer = Math.min(
+        buffState.empCollectorTimer = Math.min(
           PowerUpManager.MAX_BUFF_DURATION,
-          this.buffState.empCollectorTimer + 5.0
+          buffState.empCollectorTimer + 5.0
         );
-        player.empCollectorTimer = this.buffState.empCollectorTimer;
+        player.empCollectorTimer = buffState.empCollectorTimer;
         this.game?.soundSynth?.playEmpBulletAbsorb?.();
         break;
 
       case PowerUpType.PHASE_DRIVE:
-        this.buffState.phaseDriveTimer = Math.min(
+        buffState.phaseDriveTimer = Math.min(
           PowerUpManager.MAX_BUFF_DURATION,
-          this.buffState.phaseDriveTimer + 15.0
+          buffState.phaseDriveTimer + 15.0
         );
-        player.phaseDriveTimer = this.buffState.phaseDriveTimer;
+        player.phaseDriveTimer = buffState.phaseDriveTimer;
         this.game?.soundSynth?.playPhaseDriveBlink?.();
         break;
 
       case PowerUpType.ANTIMATTER_PLASMA:
-        this.buffState.plasmaBlasterTimer = Math.min(
+        buffState.plasmaBlasterTimer = Math.min(
           PowerUpManager.MAX_BUFF_DURATION,
-          this.buffState.plasmaBlasterTimer + 7.0
+          buffState.plasmaBlasterTimer + 7.0
         );
-        player.plasmaBlasterTimer = this.buffState.plasmaBlasterTimer;
+        player.plasmaBlasterTimer = buffState.plasmaBlasterTimer;
         this.game?.soundSynth?.playPlasmaBeamPulse?.();
         break;
     }
 
     // Award collection score & trigger audio/visuals
     if (this.game) {
-      this.game.scoreManager?.addScore?.(500); // 500 bonus points
+      if (player.id === 'p2') {
+        this.game.scoreManager?.addScore?.(500, 'p2');
+      } else {
+        this.game.scoreManager?.addScore?.(500);
+      }
       this.game.particleSystem?.spawnHitSparks?.(player.x, player.y);
       this.game.soundSynth?.playLaserDual?.();
     }
   }
 
-  public getActiveBuffs(): ActiveBuffState {
-    return { ...this.buffState };
+  public getActiveBuffs(playerId: 'p1' | 'p2' = 'p1'): ActiveBuffState {
+    return { ...(playerId === 'p2' ? this.p2BuffState : this.buffState) };
   }
 
   public activateLaserAudio(player: Player): void {
@@ -527,7 +586,7 @@ export class PowerUpManager {
    * 2. Deals 1 damage to diving enemies.
    * 3. Triggers radial particle shockwave.
    */
-  public detonateEmpBomb(): void {
+  public detonateEmpBomb(player?: Player): void {
     if (!this.game) return;
 
     // 1. Recycle all active enemy bullets
@@ -537,6 +596,7 @@ export class PowerUpManager {
     });
 
     // 2. Damage diving enemies
+    const pId = player?.id ?? 'p1';
     for (const enemy of this.game.formationManager.enemies) {
       if (
         enemy.active &&
@@ -549,7 +609,11 @@ export class PowerUpManager {
         if (res.destroyed) {
           this.game.soundSynth?.playExplosion?.('small');
           this.game.particleSystem?.spawnSmallAlienExplosion?.(enemy.x, enemy.y);
-          this.game.scoreManager?.addScoreForEnemy?.(enemy.type, true);
+          if (pId === 'p2') {
+            this.game.scoreManager?.addScoreForEnemy?.(enemy.type, true, 0, 'p2');
+          } else {
+            this.game.scoreManager?.addScoreForEnemy?.(enemy.type, true);
+          }
         } else {
           this.game.particleSystem?.spawnHitSparks?.(enemy.x, enemy.y);
         }
@@ -557,7 +621,9 @@ export class PowerUpManager {
     }
 
     // 3. Screen shockwave particle burst
-    this.game.particleSystem?.spawnPlayerExplosion?.(112, 144);
+    const px = player ? player.x : 112;
+    const py = player ? player.y : 144;
+    this.game.particleSystem?.spawnPlayerExplosion?.(px, py);
     this.game.soundSynth?.playExplosion?.('large');
     this.onEmpShockwave?.();
   }
@@ -590,22 +656,70 @@ export class PowerUpManager {
       phaseDriveTimer: 0,
       plasmaBlasterTimer: 0,
     };
+    this.p2BuffState = {
+      rapidFireTimer: 0,
+      scatterShotTimer: 0,
+      engineBoosterTimer: 0,
+      hasShield: false,
+      empBombCount: 0,
+      chronoFieldTimer: 0,
+      reflectionShieldTimer: 0,
+      hasReflectionShield: false,
+      empCollectorTimer: 0,
+      phaseDriveTimer: 0,
+      plasmaBlasterTimer: 0,
+    };
   }
 
   /**
    * Clears temporary buffs upon player loss of life.
    */
-  public onPlayerDeath(): void {
-    this.buffState.rapidFireTimer = 0;
-    this.buffState.scatterShotTimer = 0;
-    this.buffState.engineBoosterTimer = 0;
-    this.buffState.hasShield = false;
-    this.buffState.chronoFieldTimer = 0;
-    this.buffState.reflectionShieldTimer = 0;
-    this.buffState.hasReflectionShield = false;
-    this.buffState.empCollectorTimer = 0;
-    this.buffState.phaseDriveTimer = 0;
-    this.buffState.plasmaBlasterTimer = 0;
+  public onPlayerDeath(player?: Player): void {
+    if (player && player.id === 'p2') {
+      this.p2BuffState.rapidFireTimer = 0;
+      this.p2BuffState.scatterShotTimer = 0;
+      this.p2BuffState.engineBoosterTimer = 0;
+      this.p2BuffState.hasShield = false;
+      this.p2BuffState.chronoFieldTimer = 0;
+      this.p2BuffState.reflectionShieldTimer = 0;
+      this.p2BuffState.hasReflectionShield = false;
+      this.p2BuffState.empCollectorTimer = 0;
+      this.p2BuffState.phaseDriveTimer = 0;
+      this.p2BuffState.plasmaBlasterTimer = 0;
+    } else if (player && player.id === 'p1') {
+      this.buffState.rapidFireTimer = 0;
+      this.buffState.scatterShotTimer = 0;
+      this.buffState.engineBoosterTimer = 0;
+      this.buffState.hasShield = false;
+      this.buffState.chronoFieldTimer = 0;
+      this.buffState.reflectionShieldTimer = 0;
+      this.buffState.hasReflectionShield = false;
+      this.buffState.empCollectorTimer = 0;
+      this.buffState.phaseDriveTimer = 0;
+      this.buffState.plasmaBlasterTimer = 0;
+    } else {
+      this.buffState.rapidFireTimer = 0;
+      this.buffState.scatterShotTimer = 0;
+      this.buffState.engineBoosterTimer = 0;
+      this.buffState.hasShield = false;
+      this.buffState.chronoFieldTimer = 0;
+      this.buffState.reflectionShieldTimer = 0;
+      this.buffState.hasReflectionShield = false;
+      this.buffState.empCollectorTimer = 0;
+      this.buffState.phaseDriveTimer = 0;
+      this.buffState.plasmaBlasterTimer = 0;
+
+      this.p2BuffState.rapidFireTimer = 0;
+      this.p2BuffState.scatterShotTimer = 0;
+      this.p2BuffState.engineBoosterTimer = 0;
+      this.p2BuffState.hasShield = false;
+      this.p2BuffState.chronoFieldTimer = 0;
+      this.p2BuffState.reflectionShieldTimer = 0;
+      this.p2BuffState.hasReflectionShield = false;
+      this.p2BuffState.empCollectorTimer = 0;
+      this.p2BuffState.phaseDriveTimer = 0;
+      this.p2BuffState.plasmaBlasterTimer = 0;
+    }
   }
 
   private checkAABB(a: Rect, b: Rect): boolean {

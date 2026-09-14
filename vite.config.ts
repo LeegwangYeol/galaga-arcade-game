@@ -26,6 +26,11 @@ export default defineConfig({
         manualChunks: {
           audio: ['./src/audio/SoundSynth.ts', './src/audio/MusicJingles.ts'],
           bosses: ['./src/core/boss/BossFactory.ts', './src/core/boss/BaseBoss.ts'],
+          crises: ['./src/core/crisis/CrisisEventManager.ts', './src/core/crisis/CrisisEventFactory.ts'],
+          glitch: ['./src/core/glitch/GlitchEventManager.ts', './src/renderer/GlitchRenderer.ts'],
+          powerups: ['./src/core/powerups/PowerUpManager.ts', './src/core/powerups/PowerUpItem.ts'],
+          specials: ['./src/core/specials/SpecialMovesManager.ts'],
+          allies: ['./src/core/allies/AlliesManager.ts', './src/core/allies/BaseDrone.ts'],
         },
       },
     },

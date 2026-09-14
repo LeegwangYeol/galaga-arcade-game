@@ -43,6 +43,12 @@ export class DifficultyCalculator {
   public static readonly MAX_DIVE_INTERVAL = 3.5; // seconds
   public static readonly MIN_DIVE_INTERVAL = 0.8; // seconds
 
+  // M33 Co-op Dynamic Scaling Multipliers
+  public static readonly COOP_BOSS_HP_MULT = 1.50;        // +50% Boss Galaga HP
+  public static readonly COOP_STAGE_BOSS_HP_MULT = 1.60;  // +60% Stage Boss HP (Stages 10, 20, 30, 40, 50)
+  public static readonly COOP_WAVE_AGGRESSION_MULT = 1.25;// +25% Wave Aggression & Dive Cadence
+  public static readonly COOP_BULLET_DENSITY_MULT = 1.25; // +25% Bullet Density & Formation Sniper Rate
+
   /**
    * Identifies the difficulty tier for a given stage number.
    * - Stages 1–10: CLASSIC
@@ -132,9 +138,13 @@ export class DifficultyCalculator {
   }
 
   /**
-   * Computes base health and kinetic shield for a given enemy type and stage.
+   * Computes base health and kinetic shield for a given enemy type, stage, and game mode.
    */
-  public static getEnemyHealthAndShield(stage: number, type: EnemyType): EnemyHealthAndShield {
+  public static getEnemyHealthAndShield(
+    stage: number,
+    type: EnemyType,
+    isCoop: boolean = false
+  ): EnemyHealthAndShield {
     // Challenging stages always have 1 HP and 0 shield for authentic 40-hit bonus feasibility
     if (DifficultyCalculator.isChallengingStage(stage)) {
       return { health: 1, shield: 0 };
@@ -145,13 +155,13 @@ export class DifficultyCalculator {
     switch (tier) {
       case 'CLASSIC':
         if (type === EnemyType.BOSS) {
-          return { health: 2, shield: 0 };
+          return { health: isCoop ? 3 : 2, shield: 0 };
         }
         return { health: 1, shield: 0 };
 
       case 'ELITE':
         if (type === EnemyType.BOSS) {
-          return { health: 3, shield: 0 };
+          return { health: isCoop ? 5 : 3, shield: 0 };
         }
         if (type === EnemyType.CAPTURED_FIGHTER) {
           return { health: 1, shield: 0 };
@@ -160,13 +170,20 @@ export class DifficultyCalculator {
 
       case 'DREADNOUGHT':
         if (type === EnemyType.BOSS) {
-          return { health: 3, shield: 2 };
+          return { health: isCoop ? 5 : 3, shield: 2 };
         }
         if (type === EnemyType.CAPTURED_FIGHTER) {
           return { health: 1, shield: 0 };
         }
         return { health: 2, shield: 1 };
     }
+  }
+
+  /**
+   * Computes co-op scaled max concurrent divers (capped at 8).
+   */
+  public static getCoopMaxConcurrentDivers(baseDivers: number): number {
+    return Math.min(8, Math.round(baseDivers * DifficultyCalculator.COOP_WAVE_AGGRESSION_MULT));
   }
 
   /**
