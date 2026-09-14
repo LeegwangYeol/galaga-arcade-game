@@ -12,7 +12,7 @@
  * 5. Zero Garbage Collection memory allocation during active update/render loops.
  */
 
-import type { Rect } from '../types';
+import { EnemyState, type Rect } from '../types';
 import { Enemy } from './Enemy';
 import type { Player } from './Player';
 
@@ -282,6 +282,17 @@ export class TractorBeam {
           this.extensionRatio * (TractorBeam.BOTTOM_WIDTH_TARGET - TractorBeam.TOP_WIDTH);
 
         if (this.timer >= TractorBeam.RETRACT_DURATION) {
+          // Resume Boss Galaga into downward dive if player was not captured
+          if (
+            this.bossEnemy &&
+            this.bossEnemy.active &&
+            this.bossEnemy.state === EnemyState.TRACTOR_BEAM_ACTIVE
+          ) {
+            this.bossEnemy.state = EnemyState.DIVING_SOLO;
+            this.bossEnemy.vx = 0;
+            this.bossEnemy.vy = this.bossEnemy.diveSpeed;
+            this.bossEnemy.rotation = 0;
+          }
           this.reset();
           this.onStateChange?.('INACTIVE', 'RETRACTING');
           this.onDeactivated?.();
@@ -345,9 +356,9 @@ export class TractorBeam {
       return false;
     }
 
-    // 2. Test middle Y of overlapping segment
-    const midY = (Math.max(boxTop, this.topY) + Math.min(boxBottom, this.currentBottomY)) / 2;
-    const halfWidth = this.getHalfWidthAtY(midY);
+    // 2. Test bottom Y of overlapping segment (maximum width across vertical overlap)
+    const overlapBottomY = Math.min(boxBottom, this.currentBottomY);
+    const halfWidth = this.getHalfWidthAtY(overlapBottomY);
 
     const beamLeft = this.bossX - halfWidth;
     const beamRight = this.bossX + halfWidth;

@@ -137,9 +137,9 @@ describe('M8 Challenger 1: Tier 5 Full Engine Adversarial Hardening Suite', () =
         expect(star.y).toBeLessThanOrEqual(Game.VIRTUAL_HEIGHT);
       }
 
-      // 3. Verify Bullet counts never exceed quota (2 for single fighter)
+      // 3. Verify Bullet counts never exceed quota (2 for single fighter, or buffed quota when Rapid Fire is active)
       const playerBulletCount = game.getBulletManager().getPlayerBulletCount();
-      expect(playerBulletCount).toBeLessThanOrEqual(2);
+      expect(playerBulletCount).toBeLessThanOrEqual(p.getMaxMissileQuota());
       expect(playerBulletCount).toBeGreaterThanOrEqual(0);
 
       // 4. Verify bullet pool remained bounded (no runaway leaks)

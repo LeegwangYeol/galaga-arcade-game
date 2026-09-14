@@ -13,6 +13,7 @@ import { ScreenManager } from './ScreenManager';
 import { GameLoop } from './GameLoop';
 import { Starfield } from '../systems/Starfield';
 import { InputHandler } from '../ui/InputHandler';
+import { FullscreenManager } from '../ui/FullscreenManager';
 import { Player } from '../entities/Player';
 import { BulletManager } from '../entities/Bullet';
 import { FormationManager } from '../systems/FormationManager';
@@ -24,7 +25,20 @@ import { SoundSynth } from '../audio/SoundSynth';
 import { MusicJingles } from '../audio/MusicJingles';
 import { ParticleSystem } from '../systems/ParticleSystem';
 import { ScoreManager } from '../systems/ScoreManager';
+import { DifficultyCalculator } from '../systems/DifficultyCalculator';
+import { DynamicDifficultyManager } from '../systems/DynamicDifficultyManager';
+import { CrisisEventManager } from './crisis/CrisisEventManager';
+import { GlitchEventManager } from './glitch/GlitchEventManager';
+import { PowerUpManager } from './powerups/PowerUpManager';
+import { BossManager } from './boss/BossManager';
+import { BaseBoss, BossSubUnit } from './boss/BaseBoss';
+import { AlliesManager } from './allies/AlliesManager';
+import { SpecialMovesManager } from './specials/SpecialMovesManager';
+import { SpecialMoveType } from './specials/types';
+import { PowerUpType } from './powerups/types';
+import { GalagaCheatController } from './qa/GalagaCheatController';
 import { HUD } from '../ui/HUD';
+import { BottomDashboard, type DashboardState, type ActivePowerUpTelemetry } from '../ui/BottomDashboard';
 import { Screens, type ScreenRenderContext } from '../ui/Screens';
 import { EnemyType, EnemyState } from '../types';
 import type { GameState, IGameEngine, Rect, VirtualResolution } from '../types';
@@ -56,6 +70,7 @@ export class Game implements IGameEngine {
 
   // Subsystems
   public screenManager: ScreenManager;
+  public fullscreenManager: FullscreenManager;
   public gameLoop: GameLoop;
   public starfield: Starfield;
   public inputHandler: InputHandler;
@@ -68,6 +83,23 @@ export class Game implements IGameEngine {
   public particleSystem: ParticleSystem;
   public scoreManager: ScoreManager;
   public hud: HUD;
+  public crisisEventManager: CrisisEventManager;
+  public glitchEventManager: GlitchEventManager;
+  public powerUpManager: PowerUpManager;
+  public bossManager: BossManager;
+  public alliesManager: AlliesManager;
+  public specialMovesManager: SpecialMovesManager;
+  public dynamicDifficultyManager: DynamicDifficultyManager;
+  public cheatController: GalagaCheatController;
+  public bottomDashboard: BottomDashboard;
+  private _dashboardState: DashboardState;
+
+  // Screen Shake Camera System (Milestone 14)
+  public shakeIntensity: number = 0;
+  public shakeDuration: number = 0;
+  public shakeTimer: number = 0;
+  public shakeOffsetX: number = 0;
+  public shakeOffsetY: number = 0;
 
   // Core Game State
   public state: GameState = 'BOOT';
@@ -152,29 +184,94 @@ export class Game implements IGameEngine {
 
     if (!ctx) {
       // Mock 2D context fallback for test environments
-      this.ctx = {
+      const baseMock: Record<string | symbol, any> = {
         canvas: this.canvas,
         fillStyle: '#000000',
         strokeStyle: '#FFFFFF',
         font: '8px monospace',
         textAlign: 'center',
         textBaseline: 'middle',
+        direction: 'inherit',
         globalAlpha: 1.0,
+        globalCompositeOperation: 'source-over',
+        lineWidth: 1,
+        lineCap: 'butt',
+        lineJoin: 'miter',
+        miterLimit: 10,
+        lineDashOffset: 0,
+        shadowBlur: 0,
+        shadowColor: '#000000',
+        shadowOffsetX: 0,
+        shadowOffsetY: 0,
         imageSmoothingEnabled: false,
+        imageSmoothingQuality: 'low',
+        filter: 'none',
         fillRect: () => {},
-        fillText: () => {},
         strokeRect: () => {},
+        clearRect: () => {},
+        fillText: () => {},
+        strokeText: () => {},
         beginPath: () => {},
         closePath: () => {},
+        moveTo: () => {},
+        lineTo: () => {},
+        quadraticCurveTo: () => {},
+        bezierCurveTo: () => {},
+        arc: () => {},
+        arcTo: () => {},
+        ellipse: () => {},
+        rect: () => {},
+        roundRect: () => {},
+        fill: () => {},
+        stroke: () => {},
+        clip: () => {},
+        isPointInPath: () => false,
+        isPointInStroke: () => false,
         save: () => {},
         restore: () => {},
+        reset: () => {},
         drawImage: () => {},
         translate: () => {},
         rotate: () => {},
         scale: () => {},
-        arc: () => {},
-        stroke: () => {},
-      } as unknown as CanvasRenderingContext2D;
+        transform: () => {},
+        setTransform: () => {},
+        resetTransform: () => {},
+        getTransform: () =>
+          typeof DOMMatrix !== 'undefined'
+            ? new DOMMatrix()
+            : { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
+        setLineDash: () => {},
+        getLineDash: () => [],
+        createLinearGradient: () => ({ addColorStop: () => {} }),
+        createRadialGradient: () => ({ addColorStop: () => {} }),
+        createConicGradient: () => ({ addColorStop: () => {} }),
+        createPattern: () => null,
+        createImageData: () => ({ width: 0, height: 0, data: new Uint8ClampedArray(0) }),
+        getImageData: () => ({ width: 0, height: 0, data: new Uint8ClampedArray(0) }),
+        putImageData: () => {},
+        measureText: () => ({
+          width: 0,
+          actualBoundingBoxAscent: 0,
+          actualBoundingBoxDescent: 0,
+          actualBoundingBoxLeft: 0,
+          actualBoundingBoxRight: 0,
+          fontBoundingBoxAscent: 0,
+          fontBoundingBoxDescent: 0,
+        }),
+      };
+
+      this.ctx = new Proxy(baseMock, {
+        get(target: any, prop: string | symbol) {
+          if (prop in target) {
+            return target[prop];
+          }
+          if (prop === 'then') {
+            return undefined;
+          }
+          return () => {};
+        },
+      }) as unknown as CanvasRenderingContext2D;
     } else {
       this.ctx = ctx;
       this.ctx.imageSmoothingEnabled = false;
@@ -193,8 +290,19 @@ export class Game implements IGameEngine {
     this.soundSynth = SoundSynth.getInstance(this.audioContextManager);
     this.particleSystem = new ParticleSystem();
 
-    // 6. Initialize Screen, Starfield & Input Subsystems
+    // 6. Initialize Screen, Fullscreen, Starfield & Input Subsystems
     this.screenManager = new ScreenManager(this.canvas, Game.VIRTUAL_WIDTH, Game.VIRTUAL_HEIGHT);
+    this.fullscreenManager = new FullscreenManager({
+      target: '#app-container',
+      screenManager: this.screenManager,
+      bindKeyboardShortcut: true,
+    });
+    if (typeof document !== 'undefined') {
+      const btnFullscreen = document.getElementById('btn-fullscreen');
+      if (btnFullscreen) {
+        this.fullscreenManager.bindToggleButton(btnFullscreen);
+      }
+    }
     this.starfield = new Starfield(Game.VIRTUAL_WIDTH, Game.VIRTUAL_HEIGHT);
     this.inputHandler = new InputHandler(this.canvas, this.screenManager, () => this.unlockAudio());
 
@@ -211,6 +319,7 @@ export class Game implements IGameEngine {
       x: 112,
       y: Player.BASELINE_Y,
       lives: this.scoreManager.lives,
+      game: this,
     });
 
     // Wire extra life callback to add life to player and trigger audio
@@ -222,14 +331,19 @@ export class Game implements IGameEngine {
     });
 
     this.player.onFire = (spawns) => {
+      const quota = this.player.getMaxMissileQuota();
       for (const s of spawns) {
         this.bulletManager.firePlayerBullet(
           s.x,
           s.y,
           this.player.isDual,
-          Math.abs(s.vy)
+          Math.abs(s.vy),
+          s.vx,
+          s.vy,
+          quota
         );
         this.scoreManager.recordShotFired(1);
+        this.dynamicDifficultyManager?.recordShotFired(1);
       }
       this.player.activeMissileCount = this.bulletManager.getPlayerBulletCount();
 
@@ -241,12 +355,66 @@ export class Game implements IGameEngine {
       }
     };
 
+    this.player.onShieldDeflect = (x, y) => {
+      this.soundSynth.playBossHit();
+      this.particleSystem.spawnHitSparks(x, y);
+      this.dynamicDifficultyManager?.recordPlayerDamage(false);
+    };
+
+    this.player.onReflectionDeflect = (x, y) => {
+      this.soundSynth.playReflectionDeflect();
+      this.particleSystem.spawnHitSparks(x, y);
+      this.dynamicDifficultyManager?.recordPlayerDamage(false);
+
+      let targetX = x;
+      let targetY = y - 100;
+      let minDistSq = Infinity;
+
+      for (const enemy of this.formationManager.enemies) {
+        if (enemy.active) {
+          const dx = enemy.x - x;
+          const dy = enemy.y - y;
+          const dSq = dx * dx + dy * dy;
+          if (dSq < minDistSq) {
+            minDistSq = dSq;
+            targetX = enemy.x;
+            targetY = enemy.y;
+          }
+        }
+      }
+
+      if (this.bossManager?.activeBoss?.active) {
+        const boss = this.bossManager.activeBoss;
+        const dx = boss.x - x;
+        const dy = boss.y - y;
+        const dSq = dx * dx + dy * dy;
+        if (dSq < minDistSq) {
+          targetX = boss.x;
+          targetY = boss.y;
+        }
+      }
+
+      this.bulletManager.fireReflectionMissile(x, y - 6, targetX, targetY, 600);
+    };
+
+    this.player.onPlasmaBeamTick = (x, y, isDual) => {
+      this.resolvePlasmaBeamDamage(x, y, isDual);
+    };
+
+    this.player.onExplode = (_x, _y, isPartial) => {
+      this.dynamicDifficultyManager?.recordPlayerDamage(!isPartial);
+      if (!isPartial) {
+        this.powerUpManager?.onPlayerDeath();
+      }
+    };
+
     this.player.onGameOver = () => {
       this.setState('GAME_OVER');
     };
 
     this.player.onCapturedComplete = (targetX, targetY) => {
       this.handlePlayerCaptured(targetX, targetY);
+      this.powerUpManager?.onPlayerDeath();
     };
 
     this.player.onDocked = () => {
@@ -258,8 +426,15 @@ export class Game implements IGameEngine {
     // 8. Initialize TractorBeam Subsystem
     this.tractorBeam = new TractorBeam();
 
+    // 8.5 Initialize Boss Subsystem
+    this.bossManager = new BossManager(this);
+
+    // 8.6 Initialize Dynamic Difficulty Adjustment (DDA) Engine
+    this.dynamicDifficultyManager = new DynamicDifficultyManager();
+
     // 9. Initialize FormationManager Subsystem
     this.formationManager = new FormationManager({
+      dynamicDifficultyManager: this.dynamicDifficultyManager,
       onEnemyFire: (req) => {
         this.bulletManager.fireEnemyBullet(
           req.originX,
@@ -273,6 +448,21 @@ export class Game implements IGameEngine {
         this.scoreManager.addScore(points);
       },
       onStageClear: () => {
+        this.crisisEventManager.onStageClear();
+        this.glitchEventManager?.onStageClear();
+        this.dynamicDifficultyManager?.onStageClear(this.stage);
+        if (this.powerUpManager) {
+          this.powerUpManager.reset();
+        }
+        if (this.bossManager) {
+          this.bossManager.onStageClear();
+        }
+        if (this.alliesManager) {
+          this.alliesManager.onStageClear();
+        }
+        if (this.specialMovesManager) {
+          this.specialMovesManager.onStageClear();
+        }
         if (this.isChallengingStage(this.stage)) {
           // Process challenging stage bonus
           this.scoreManager.addChallengingStageBonus(this.scoreManager.challengingHits);
@@ -286,6 +476,76 @@ export class Game implements IGameEngine {
         this.tractorBeam.activate(boss);
         this.soundSynth.playTractorBeam(true);
       },
+      onSpawnBoss: (stage) => {
+        const boss = this.bossManager.spawnBoss(stage);
+        if (boss) {
+          return [boss, ...boss.subUnits];
+        }
+        return [];
+      },
+    });
+
+    // 9.5 Initialize Crisis Event Subsystem
+    this.crisisEventManager = new CrisisEventManager(this);
+
+    // 9.55 Initialize Glitch Event Subsystem
+    this.glitchEventManager = new GlitchEventManager(this);
+    this.formationManager.glitchEventManager = this.glitchEventManager;
+
+    // 9.6 Initialize PowerUp Subsystem
+    this.powerUpManager = new PowerUpManager({ game: this });
+
+    // 9.7 Initialize Allies Support Subsystem & Special Moves
+    this.alliesManager = new AlliesManager(this);
+    this.specialMovesManager = new SpecialMovesManager(this);
+
+    // 9.8 Initialize QA Cheat Controller
+    this.cheatController = new GalagaCheatController(this);
+
+    // 9.9 Initialize Modernized Bottom HUD & Dashboard Panel (Milestone M28)
+    const powerUpSlots: ActivePowerUpTelemetry[] = [
+      { type: PowerUpType.RAPID_FIRE, id: 'rapid', label: 'OVERCLOCK', maxDuration: 15, primaryColor: '#FF7F00', accentColor: '#FFFF00', remainingTime: 0, progress: 0, isActive: false },
+      { type: PowerUpType.KINETIC_SHIELD, id: 'shield', label: 'SHIELD', maxDuration: 1, primaryColor: '#00FFFF', accentColor: '#5B93FF', remainingTime: 0, progress: 0, isActive: false },
+      { type: PowerUpType.SCATTER_SHOT, id: 'scatter', label: 'SPREAD', maxDuration: 15, primaryColor: '#00E700', accentColor: '#FFFFFF', remainingTime: 0, progress: 0, isActive: false },
+      { type: PowerUpType.ENGINE_BOOSTER, id: 'booster', label: 'BOOSTER', maxDuration: 15, primaryColor: '#5B93FF', accentColor: '#00FFFF', remainingTime: 0, progress: 0, isActive: false },
+      { type: PowerUpType.CHRONO_FIELD, id: 'chrono', label: 'CHRONO', maxDuration: 6, primaryColor: '#00FFFF', accentColor: '#FFBF00', remainingTime: 0, progress: 0, isActive: false },
+      { type: PowerUpType.REFLECTION_SHIELD, id: 'reflect', label: 'REFLECT', maxDuration: 12, primaryColor: '#5B93FF', accentColor: '#00FFFF', remainingTime: 0, progress: 0, isActive: false },
+      { type: PowerUpType.EMP_COLLECTOR, id: 'collector', label: 'COLLECTOR', maxDuration: 5, primaryColor: '#BB33FF', accentColor: '#FF007F', remainingTime: 0, progress: 0, isActive: false },
+      { type: PowerUpType.PHASE_DRIVE, id: 'phase', label: 'PHASE', maxDuration: 15, primaryColor: '#FF007F', accentColor: '#00FFFF', remainingTime: 0, progress: 0, isActive: false },
+      { type: PowerUpType.ANTIMATTER_PLASMA, id: 'plasma', label: 'PLASMA', maxDuration: 7, primaryColor: '#FFFF00', accentColor: '#00E700', remainingTime: 0, progress: 0, isActive: false },
+    ];
+
+    this._dashboardState = {
+      score: 0,
+      highScore: 20000,
+      isNewHighScore: false,
+      lives: 3,
+      reserveLives: 2,
+      stage: 1,
+      activePowerUps: powerUpSlots,
+      activePowerUpCount: 0,
+      specialEnergy: 0,
+      specialCharge: 0,
+      specialReady: false,
+      isSpecialReady: false,
+      specialActive: false,
+      selectedSpecial: SpecialMoveType.NOVA_BARRAGE,
+      isMuted: false,
+      isFullscreen: false,
+      isPaused: false,
+      canPause: false,
+    };
+
+    this.bottomDashboard = new BottomDashboard({
+      container:
+        typeof document !== 'undefined'
+          ? document.getElementById('bottom-dashboard') || document.getElementById('app-container')
+          : null,
+      onToggleMute: () => this.audioContextManager?.toggleMute(),
+      onToggleFullscreen: () => this.fullscreenManager?.toggleFullscreen(),
+      onTogglePause: () => this.togglePause(),
+      onTriggerSpecial: () => this.specialMovesManager?.trigger(),
+      onCycleSpecial: () => this.specialMovesManager?.cycleSpecial(),
     });
 
     // 10. Initialize GameLoop
@@ -372,6 +632,7 @@ export class Game implements IGameEngine {
       this.previousState = this.state;
       this.setState('PAUSED');
       this.starfield.setSpeedState('PAUSED');
+      this.audioContextManager?.suspend();
       return true;
     }
     return false;
@@ -386,6 +647,7 @@ export class Game implements IGameEngine {
       this.previousState = null;
       this.setState(resumeTarget);
       this.starfield.setSpeedState('NORMAL');
+      this.audioContextManager?.resume();
       return true;
     }
     return false;
@@ -407,6 +669,33 @@ export class Game implements IGameEngine {
    */
   public destroy(): void {
     this.stop();
+    if (this.crisisEventManager) {
+      this.crisisEventManager.destroy();
+    }
+    if (this.glitchEventManager) {
+      this.glitchEventManager.clearGlitch();
+    }
+    if (this.powerUpManager) {
+      this.powerUpManager.reset();
+    }
+    if (this.bossManager) {
+      this.bossManager.reset();
+    }
+    if (this.alliesManager) {
+      this.alliesManager.reset();
+    }
+    if (this.specialMovesManager) {
+      this.specialMovesManager.reset();
+    }
+    if (this.cheatController) {
+      this.cheatController.destroy();
+    }
+    if (this.fullscreenManager) {
+      this.fullscreenManager.destroy();
+    }
+    if (this.bottomDashboard) {
+      this.bottomDashboard.destroy();
+    }
     this.screenManager.destroy();
     this.inputHandler.destroy();
     this.bulletManager.clear();
@@ -416,6 +705,26 @@ export class Game implements IGameEngine {
     this.soundSynth.stopAll();
     MusicJingles.stopAll();
     this.isInitialized = false;
+  }
+
+  public getCrisisEventManager(): CrisisEventManager {
+    return this.crisisEventManager;
+  }
+
+  public getPowerUpManager(): PowerUpManager {
+    return this.powerUpManager;
+  }
+
+  public getBossManager(): BossManager {
+    return this.bossManager;
+  }
+
+  public getCheatController(): GalagaCheatController {
+    return this.cheatController;
+  }
+
+  public skipToStage(stage: number): boolean {
+    return this.cheatController ? this.cheatController.skipToStage(stage) : false;
   }
 
   // ==========================================================================
@@ -434,6 +743,15 @@ export class Game implements IGameEngine {
         this.particleSystem.clear();
         this.soundSynth.stopAll();
         MusicJingles.stopAll();
+        if (this.crisisEventManager) {
+          this.crisisEventManager.reset();
+        }
+        if (this.powerUpManager) {
+          this.powerUpManager.reset();
+        }
+        if (this.bossManager) {
+          this.bossManager.reset();
+        }
         break;
       case 'STAGE_INTRO':
         this.starfield.setSpeedState('WARP');
@@ -453,6 +771,12 @@ export class Game implements IGameEngine {
         this.starfield.setSpeedState('NORMAL');
         this.tractorBeam.reset();
         this.soundSynth.stopTractorBeam();
+        if (this.bossManager) {
+          this.bossManager.onStageClear();
+        }
+        if (this.alliesManager) {
+          this.alliesManager.onStageClear();
+        }
         break;
       case 'GAME_OVER':
         this.starfield.setSpeedState('NORMAL');
@@ -460,6 +784,27 @@ export class Game implements IGameEngine {
         this.soundSynth.stopTractorBeam();
         MusicJingles.playGameOverTune();
         this.scoreManager.saveHighScore();
+        this.bulletManager.clear();
+        this.particleSystem.clear();
+        this.formationManager.reset();
+        if (this.glitchEventManager) {
+          this.glitchEventManager.reset();
+        }
+        if (this.crisisEventManager) {
+          this.crisisEventManager.reset();
+        }
+        if (this.powerUpManager) {
+          this.powerUpManager.reset();
+        }
+        if (this.bossManager) {
+          this.bossManager.reset();
+        }
+        if (this.alliesManager) {
+          this.alliesManager.reset();
+        }
+        if (this.specialMovesManager) {
+          this.specialMovesManager.reset();
+        }
         break;
       case 'PAUSED':
         this.starfield.setSpeedState('PAUSED');
@@ -468,6 +813,28 @@ export class Game implements IGameEngine {
   }
 
   public startGame(): void {
+    if (this.glitchEventManager) {
+      this.glitchEventManager.reset();
+    }
+    if (this.crisisEventManager) {
+      this.crisisEventManager.reset();
+    }
+    if (this.powerUpManager) {
+      this.powerUpManager.reset();
+    }
+    if (this.bossManager) {
+      this.bossManager.reset();
+    }
+    if (this.alliesManager) {
+      this.alliesManager.reset();
+    }
+    if (this.specialMovesManager) {
+      this.specialMovesManager.reset();
+    }
+    if (this.dynamicDifficultyManager) {
+      this.dynamicDifficultyManager.reset();
+      this.dynamicDifficultyManager.onStageStart(1);
+    }
     this.scoreManager.reset(3, 1);
     this.bulletManager.clear();
     this.player.reset(112, Player.BASELINE_Y, 3);
@@ -478,7 +845,30 @@ export class Game implements IGameEngine {
   }
 
   public isChallengingStage(stageNum: number = this.stage): boolean {
-    return stageNum >= 3 && stageNum % 4 === 3;
+    return DifficultyCalculator.isChallengingStage(stageNum);
+  }
+
+  // ==========================================================================
+  // Screen Shake Camera Controller
+  // ==========================================================================
+
+  public triggerScreenShake(intensity: number = 1.5, duration: number = 0.5): void {
+    this.shakeIntensity = intensity;
+    this.shakeDuration = duration;
+    this.shakeTimer = 0;
+  }
+
+  public updateScreenShake(dt: number): void {
+    if (this.shakeTimer < this.shakeDuration) {
+      this.shakeTimer += dt;
+      const decay = Math.max(0, 1.0 - this.shakeTimer / this.shakeDuration);
+      const amp = this.shakeIntensity * decay;
+      this.shakeOffsetX = Math.round((Math.random() - 0.5) * 2 * amp) || 0;
+      this.shakeOffsetY = Math.round((Math.random() - 0.5) * 2 * amp) || 0;
+    } else {
+      this.shakeOffsetX = 0;
+      this.shakeOffsetY = 0;
+    }
   }
 
   // ==========================================================================
@@ -495,22 +885,50 @@ export class Game implements IGameEngine {
       this.togglePause();
     }
 
+    // Update Bottom HUD & Dashboard Bar Telemetry (Milestone M28)
+    this.updateDashboardTelemetry();
+    if (this.bottomDashboard) {
+      this.bottomDashboard.update(this._dashboardState);
+    }
+
     if (this.state === 'PAUSED') {
       return;
     }
 
-    // Update background starfield
+    // Calculate effective enemy delta-time (Chrono Freeze absolute time stop)
+    const isFrozen = this.specialMovesManager ? this.specialMovesManager.isChronoFreezeActive() : false;
+    const enemyDt = isFrozen ? 0 : dt;
+
+    // Update screen shake camera decay
+    this.updateScreenShake(dt);
+
+    // Update background starfield (frozen if Chrono Freeze active)
+    this.starfield.setChronoFrozen(isFrozen);
     this.starfield.update(dt);
 
     // Update particle effects
     this.particleSystem.update(dt);
 
-    // Update projectiles
-    this.bulletManager.update(dt);
+    // Update projectiles (player missiles move normally, enemy bullets freeze if enemyDt == 0, slowed if in Chrono Field)
+    const chronoField = this.player.hasChronoField
+      ? { x: this.player.x, y: this.player.y, radiusSq: 14400, slowFactor: 0.40 }
+      : undefined;
+    this.bulletManager.update(dt, enemyDt, chronoField);
     this.player.activeMissileCount = this.bulletManager.getPlayerBulletCount();
 
     // Sync score & lives with player
     this.player.score = this.scoreManager.score;
+
+    // Update Dynamic Difficulty Adjustment (DDA) Engine
+    if (this.dynamicDifficultyManager) {
+      this.dynamicDifficultyManager.update(dt, this.player ? this.player.lives : 3, this.scoreManager.score);
+    }
+
+    // Update active crisis & glitch events and warning timers
+    if (this.state === 'PLAYING' || this.state === 'STAGE_INTRO') {
+      this.crisisEventManager.update(dt);
+      this.glitchEventManager?.update(dt);
+    }
 
     // State machine updates
     switch (this.state) {
@@ -560,15 +978,66 @@ export class Game implements IGameEngine {
         this.setState('CHALLENGING_STAGE');
       } else {
         this.setState('PLAYING');
+        this.crisisEventManager.evaluateStageTrigger(this.stage);
+        this.glitchEventManager?.evaluateStageTrigger(this.stage);
       }
+      this.dynamicDifficultyManager?.onStageStart(this.stage);
     }
   }
 
   private updatePlaying(dt: number): void {
+    // 0. Handle Special Move Inputs
+    if (
+      this.inputHandler.consumeAction('special' as any) ||
+      this.inputHandler.consumeAction('specialMove' as any)
+    ) {
+      if (this.specialMovesManager) {
+        this.specialMovesManager.trigger();
+      }
+    }
+    if (this.inputHandler.consumeAction('cycleSpecial' as any)) {
+      if (this.specialMovesManager) {
+        this.specialMovesManager.cycleSpecial();
+      }
+    }
+
     const input = this.inputHandler.getState();
+    const prevPlayerX = this.player.x;
+
     this.player.update(dt, input);
-    this.formationManager.update(dt, this.player.x, this.player.y, this.player.isDual);
-    this.tractorBeam.update(dt);
+
+    // Calculate effective enemy delta-time (frozen if Chrono Freeze is active)
+    const isFrozen = this.specialMovesManager ? this.specialMovesManager.isChronoFreezeActive() : false;
+    const enemyDt = isFrozen ? 0 : dt;
+
+    // Apply Telekinetic Stun thruster disruption (Stage 40)
+    if (this.bossManager && this.bossManager.playerStunTimer > 0) {
+      this.player.x = prevPlayerX + (this.player.x - prevPlayerX) * 0.25;
+    }
+
+    if (this.bossManager) {
+      this.bossManager.update(enemyDt, this.player.x, this.player.y);
+      if (this.bossManager.activeBoss) {
+        for (const sub of this.bossManager.activeBoss.subUnits) {
+          if (sub.active && !this.formationManager.enemies.includes(sub)) {
+            this.formationManager.addEnemy(sub);
+          }
+        }
+      }
+    }
+
+    this.powerUpManager.update(dt, this.player);
+    this.formationManager.update(enemyDt, this.player.x, this.player.y, this.player.isDual);
+    this.tractorBeam.update(enemyDt);
+
+    // Allies Support & Special Moves update
+    if (this.alliesManager) {
+      this.alliesManager.update(dt);
+      this.alliesManager.checkMilestones(this.scoreManager.score, this.stage);
+    }
+    if (this.specialMovesManager) {
+      this.specialMovesManager.update(dt);
+    }
 
     // Tractor beam energy sparkles
     if (this.tractorBeam.isActive()) {
@@ -623,6 +1092,16 @@ export class Game implements IGameEngine {
     if (this.stateTimer >= clearDuration) {
       this.scoreManager.advanceStage();
       this.bulletManager.clear();
+      this.particleSystem.clear();
+      if (this.alliesManager) {
+        this.alliesManager.onStageClear();
+      }
+      if (this.specialMovesManager) {
+        this.specialMovesManager.onStageClear();
+      }
+      if (this.powerUpManager) {
+        this.powerUpManager.reset();
+      }
       this.formationManager.spawnStage(this.stage);
       this.tractorBeam.reset();
       this.soundSynth.stopTractorBeam();
@@ -666,18 +1145,55 @@ export class Game implements IGameEngine {
           continue;
         }
 
+        // Clamp player missile collision to on-screen enemies (y in [0, VIRTUAL_HEIGHT])
+        if (enemy.y < 0 || enemy.y > Game.VIRTUAL_HEIGHT) {
+          continue;
+        }
+
         const enemyBox = enemy.getHitbox();
 
         if (checkAABB(bulletBox, enemyBox)) {
           this.bulletManager.recycle(bullet);
           this.scoreManager.recordShotHit(1);
+          this.dynamicDifficultyManager?.recordShotHit(1);
 
           if (this.state === 'CHALLENGING_STAGE') {
             this.scoreManager.recordChallengingHit(1);
           }
 
+          // Case 0: Shooting Epic Multi-Phase Boss
+          if (enemy instanceof BaseBoss) {
+            const damageResult = enemy.takeDamage(1);
+            if (damageResult.destroyed) {
+              this.soundSynth.playExplosion('boss');
+              this.particleSystem.spawnBossExplosion(enemy.x, enemy.y);
+              if (this.specialMovesManager) {
+                this.specialMovesManager.addEnergy(10);
+                this.specialMovesManager.spawnSpark(enemy.x, enemy.y);
+              }
+            } else {
+              this.soundSynth.playBossHit();
+              this.particleSystem.spawnHitSparks(enemy.x, enemy.y);
+            }
+          }
+          // Case 0.5: Shooting Epic Boss Sub-Unit
+          else if (enemy instanceof BossSubUnit) {
+            const damageResult = enemy.takeDamage(1);
+            if (damageResult.destroyed) {
+              this.soundSynth.playExplosion('small');
+              this.particleSystem.spawnHitSparks(enemy.x, enemy.y);
+              this.scoreManager.addScore(damageResult.points);
+              if (this.specialMovesManager) {
+                this.specialMovesManager.addEnergy(3);
+                this.specialMovesManager.spawnSpark(enemy.x, enemy.y);
+              }
+            } else {
+              this.soundSynth.playBossHit();
+              this.particleSystem.spawnHitSparks(enemy.x, enemy.y);
+            }
+          }
           // Case A: Shooting Boss Galaga
-          if (enemy.type === EnemyType.BOSS) {
+          else if (enemy.type === EnemyType.BOSS) {
             const isDiving =
               enemy.state === EnemyState.DIVING_SOLO ||
               enemy.state === EnemyState.DIVING_ESCORT ||
@@ -689,6 +1205,12 @@ export class Game implements IGameEngine {
               // Boss Destruction Audio & Visual Particle Burst
               this.soundSynth.playExplosion('boss');
               this.particleSystem.spawnBossExplosion(enemy.x, enemy.y);
+
+              // Reward Special Energy & Spark
+              if (this.specialMovesManager) {
+                this.specialMovesManager.addEnergy(5);
+                this.specialMovesManager.spawnSpark(enemy.x, enemy.y);
+              }
 
               // Check for attached Captured Fighter Escort
               if (enemy.hasCapturedFighter && enemy.capturedFighterEnemy) {
@@ -716,9 +1238,13 @@ export class Game implements IGameEngine {
               if (this.tractorBeam.isActive() && this.tractorBeam.getBoss() === enemy) {
                 this.tractorBeam.deactivate(true);
                 this.soundSynth.playTractorBeam(false);
+                if (this.player.state === 'capturing' || (this.player.state as any) === 'CAPTURING') {
+                  this.player.cancelCapture?.();
+                }
               }
 
               this.scoreManager.addScoreForEnemy(enemy.type, isDiving, enemy.escortCount);
+              this.powerUpManager.spawnDrop(enemy.x, enemy.y, this.stage, enemy.type, isDiving);
             } else {
               // Boss Non-Lethal Armor Deflection Hit
               this.soundSynth.playBossHit();
@@ -736,6 +1262,12 @@ export class Game implements IGameEngine {
               this.soundSynth.playExplosion('small');
               this.particleSystem.spawnSmallAlienExplosion(enemy.x, enemy.y);
               this.scoreManager.addScoreForCapturedFighter(isDiving);
+              this.powerUpManager.spawnDrop(enemy.x, enemy.y, this.stage, enemy.type, isDiving);
+
+              if (this.specialMovesManager) {
+                this.specialMovesManager.addEnergy(2);
+                this.specialMovesManager.spawnSpark(enemy.x, enemy.y);
+              }
 
               if (enemy.escortBoss) {
                 enemy.escortBoss.hasCapturedFighter = false;
@@ -752,6 +1284,22 @@ export class Game implements IGameEngine {
               this.soundSynth.playExplosion('small');
               this.particleSystem.spawnSmallAlienExplosion(enemy.x, enemy.y);
               this.scoreManager.addScoreForEnemy(enemy.type, isDiving);
+              this.powerUpManager.spawnDrop(enemy.x, enemy.y, this.stage, enemy.type, isDiving);
+
+              if (enemy.canSpawnMirageClone) {
+                this.formationManager.spawnMirageClones(enemy.x, enemy.y, enemy.type);
+                this.soundSynth.playGlitchFrequencyChirp({ volume: 0.4 });
+              }
+
+              if (this.specialMovesManager) {
+                this.specialMovesManager.addEnergy(2);
+                if (Math.random() < 0.35) {
+                  this.specialMovesManager.spawnSpark(enemy.x, enemy.y);
+                }
+              }
+            } else if (damageResult.shieldAbsorbed || damageResult.wasDamaged) {
+              this.soundSynth.playBossHit();
+              this.particleSystem.spawnHitSparks(enemy.x, enemy.y);
             }
           }
 
@@ -760,9 +1308,39 @@ export class Game implements IGameEngine {
       }
     });
 
+    // 1.2 Player Missiles vs Phantom Decoy Clones (Absorbs bullet, 0 score)
+    this.formationManager.forEachActivePhantom((phantom) => {
+      if (!phantom.active) return;
+      const phantomBox = phantom.getHitbox();
+      this.bulletManager.forEachActivePlayerBullet((bullet) => {
+        if (!bullet.active) return;
+        const bulletBox = bullet.getSweptHitbox();
+        if (checkAABB(bulletBox, phantomBox)) {
+          this.bulletManager.recycle(bullet);
+          phantom.takeDamage(1);
+          this.soundSynth.playGlitchBuzz({ volume: 0.35 });
+          this.particleSystem.spawnHitSparks(phantom.x, phantom.y);
+        }
+      });
+    });
+
+    // 1.5 Allies Support Subsystem Collisions (Cluster Bombs & Bomb Explosions)
+    if (this.alliesManager) {
+      this.alliesManager.resolveCollisions(livingEnemies, this.bossManager);
+    }
+
+    // 1.6 Special Moves Subsystem Collisions (Nova Missiles, Warp Ram, Sparks collection)
+    if (this.specialMovesManager) {
+      this.specialMovesManager.resolveCollisions(livingEnemies, this.bossManager);
+    }
+
+    // Check invulnerability against external hazards (including Warp Ram absolute invulnerability)
+    const isWarpRamming = this.specialMovesManager ? this.specialMovesManager.isWarpRamActive() : false;
+
     // 2. Tractor Beam Cone vs Player Ship (Capture Trigger)
     if (this.tractorBeam.isActive() && this.tractorBeam.canCapture()) {
       const isPlayerVulnerable =
+        !isWarpRamming &&
         !this.player.isInvulnerable() &&
         (this.player.state === 'normal' || this.player.state === 'ALIVE') &&
         !this.player.isDual;
@@ -786,6 +1364,7 @@ export class Game implements IGameEngine {
     // 3. Enemy Bullets vs Player Ship
     const s = this.player.state;
     const isPlayerVulnerable =
+      !isWarpRamming &&
       !this.player.isInvulnerable() &&
       (s === 'normal' ||
         s === 'ALIVE' ||
@@ -798,7 +1377,7 @@ export class Game implements IGameEngine {
       this.bulletManager.forEachActiveEnemyBullet((bullet) => {
         if (!bullet.active) return;
 
-        const bulletBox = bullet.getHitbox();
+        const bulletBox = bullet.getSweptHitbox();
         const hit = this.player.hitTestAndDamage(bulletBox);
 
         if (hit) {
@@ -827,6 +1406,9 @@ export class Game implements IGameEngine {
         }
       }
     }
+
+    // 5. Collectible Power-Up Capsules vs Player Ship
+    this.powerUpManager.checkPlayerCollection(this.player);
   }
 
   // ==========================================================================
@@ -845,8 +1427,25 @@ export class Game implements IGameEngine {
     targetCtx.fillStyle = '#000000';
     targetCtx.fillRect(0, 0, width, height);
 
-    // 2. Render Starfield Layer (z-index: 0)
+    // 2. Render World Layers with Camera Screen Shake (z-index: 0-5)
+    targetCtx.save();
+    if (this.shakeOffsetX !== 0 || this.shakeOffsetY !== 0) {
+      targetCtx.translate(this.shakeOffsetX, this.shakeOffsetY);
+    }
+
+    // Starfield Layer (z-index: 0)
     this.starfield.render(targetCtx);
+
+    // World-space Active Playfield Layers
+    if (this.state === 'PLAYING' || this.state === 'CHALLENGING_STAGE' || this.state === 'PAUSED') {
+      this.renderPlayingScreen(targetCtx);
+    } else if (this.state === 'STAGE_INTRO') {
+      this.crisisEventManager.render(targetCtx);
+    } else if (this.state === 'STAGE_CLEAR' && !this.isChallengingStage(this.stage)) {
+      this.renderStageClearScreen(targetCtx);
+    }
+
+    targetCtx.restore();
 
     const hudState = {
       score: this.scoreManager.score,
@@ -854,10 +1453,18 @@ export class Game implements IGameEngine {
       lives: this.player ? this.player.lives : this.scoreManager.lives,
       stage: this.scoreManager.stage,
       is1UpBlinking: this.state === 'PLAYING' || this.state === 'CHALLENGING_STAGE',
+      specialEnergy: this.specialMovesManager ? this.specialMovesManager.energy : 0,
+      isSpecialReady: this.specialMovesManager ? this.specialMovesManager.isReady() : false,
+      selectedSpecial: this.specialMovesManager ? this.specialMovesManager.selectedMove : 'NOVA_BARRAGE',
     };
 
-    // 3. Render HUD Score Header (z-index: 6)
+    // 3. Render HUD Score Header (z-index: 6, fixed in screen space)
     this.hud.renderHeader(targetCtx, hudState);
+
+    // 3.1 Render Boss HUD Health Bar (fixed in screen space, outside camera shake)
+    if (this.bossManager && (this.state === 'PLAYING' || this.state === 'CHALLENGING_STAGE' || this.state === 'PAUSED')) {
+      this.bossManager.render(targetCtx);
+    }
 
     const screenCtx: ScreenRenderContext = {
       ctx: targetCtx,
@@ -875,7 +1482,7 @@ export class Game implements IGameEngine {
       isDual: this.player ? this.player.isDual : false,
     };
 
-    // 4. Render Active Screen State Overlay (z-index: 7)
+    // 4. Render Active Screen State Overlay (z-index: 7, fixed in screen space)
     switch (this.state) {
       case 'TITLE':
         Screens.renderTitleScreen(screenCtx);
@@ -883,29 +1490,22 @@ export class Game implements IGameEngine {
       case 'STAGE_INTRO':
         Screens.renderStageIntro(screenCtx);
         break;
-      case 'PLAYING':
-      case 'CHALLENGING_STAGE':
-        this.renderPlayingScreen(targetCtx);
-        break;
       case 'STAGE_CLEAR':
         if (this.isChallengingStage(this.stage)) {
           Screens.renderChallengingResults(screenCtx);
-        } else {
-          this.renderStageClearScreen(targetCtx);
         }
         break;
       case 'GAME_OVER':
         Screens.renderGameOver(screenCtx);
         break;
       case 'PAUSED':
-        this.renderPlayingScreen(targetCtx);
         Screens.renderPauseOverlay(screenCtx);
         break;
       default:
         break;
     }
 
-    // 5. Render HUD Footer (Lives & Stage Badges)
+    // 5. Render HUD Footer (Lives & Stage Badges, fixed in screen space)
     this.hud.renderFooter(targetCtx, hudState);
   }
 
@@ -916,14 +1516,33 @@ export class Game implements IGameEngine {
     // 2. Render Tractor Beam Energy Cone (underneath ships and bullets)
     this.tractorBeam.render(ctx);
 
+    // 2.5 Render Collectible Power-Up Capsules
+    this.powerUpManager.render(ctx);
+
+    // 2.6 Render Allies Support Subsystem (Escort, Aegis, Bomber, Bombs, Explosions)
+    if (this.alliesManager) {
+      this.alliesManager.render(ctx);
+    }
+
     // 3. Render Active Projectiles
     this.bulletManager.render(ctx);
+
+    // 3.5 Render Special Moves Subsystem (Nova Missiles, Sparks, Warp Trails, Frost Border)
+    if (this.specialMovesManager) {
+      this.specialMovesManager.render(ctx);
+    }
 
     // 4. Render Particle Explosions & Sparkles (underneath HUD, over entities)
     this.particleSystem.render(ctx);
 
     // 5. Render Player Ship & Rescued Docking Ship
     this.player.render(ctx);
+
+    // 5.5 Render Crisis Event Visual Overlays & Warning Banner
+    this.crisisEventManager.render(ctx);
+
+    // 5.55 Render Glitch Concept Visual Overlays & Raster Tears
+    this.glitchEventManager?.render(ctx);
 
     // 6. Challenging Stage Overlay banner if applicable
     if (this.state === 'CHALLENGING_STAGE') {
@@ -958,6 +1577,14 @@ export class Game implements IGameEngine {
 
   public getScreenManager(): ScreenManager {
     return this.screenManager;
+  }
+
+  public getFullscreenManager(): FullscreenManager {
+    return this.fullscreenManager;
+  }
+
+  public async toggleFullscreen(): Promise<boolean> {
+    return this.fullscreenManager.toggleFullscreen();
   }
 
   public getStarfield(): Starfield {
@@ -1014,6 +1641,183 @@ export class Game implements IGameEngine {
 
   public getContext(): CanvasRenderingContext2D {
     return this.ctx;
+  }
+
+  public getAlliesManager(): AlliesManager {
+    return this.alliesManager;
+  }
+
+  public getSpecialMovesManager(): SpecialMovesManager {
+    return this.specialMovesManager;
+  }
+
+  private resolvePlasmaBeamDamage(x: number, y: number, isDual: boolean): void {
+    const beams = isDual ? [x - 8, x + 8] : [x];
+    const halfWidth = 6;
+
+    for (const bx of beams) {
+      for (const enemy of this.formationManager.enemies) {
+        if (!enemy.active) continue;
+        if (Math.abs(enemy.x - bx) <= halfWidth + 6 && enemy.y <= y) {
+          const damageResult = enemy.takeDamage(1);
+          if (damageResult.destroyed) {
+            this.soundSynth.playExplosion('small');
+            this.particleSystem.spawnSmallAlienExplosion(enemy.x, enemy.y);
+            this.scoreManager.addScoreForEnemy(enemy.type, true);
+            this.powerUpManager.spawnDrop(enemy.x, enemy.y, this.stage, enemy.type, true);
+            if (this.specialMovesManager) {
+              this.specialMovesManager.addEnergy(2);
+              if (Math.random() < 0.35) {
+                this.specialMovesManager.spawnSpark(enemy.x, enemy.y);
+              }
+            }
+          } else {
+            this.soundSynth.playBossHit();
+            this.particleSystem.spawnHitSparks(enemy.x, enemy.y);
+          }
+        }
+      }
+
+      if (this.bossManager?.activeBoss?.active) {
+        const boss = this.bossManager.activeBoss;
+        if (Math.abs(boss.x - bx) <= halfWidth + 24 && boss.y <= y) {
+          const damageResult = boss.takeDamage(1);
+          if (damageResult.destroyed) {
+            this.soundSynth.playExplosion('boss');
+            this.particleSystem.spawnBossExplosion(boss.x, boss.y);
+            if (this.specialMovesManager) {
+              this.specialMovesManager.addEnergy(10);
+              this.specialMovesManager.spawnSpark(boss.x, boss.y);
+            }
+          } else {
+            this.soundSynth.playBossHit();
+            this.particleSystem.spawnHitSparks(boss.x, boss.y);
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Assembles frame telemetry into pre-allocated _dashboardState with Zero-GC allocations.
+   */
+  private updateDashboardTelemetry(): void {
+    const s = this._dashboardState;
+    if (!s) return;
+
+    s.score = this.scoreManager ? this.scoreManager.score : 0;
+    s.highScore = this.scoreManager ? this.scoreManager.highScore : 20000;
+    s.isNewHighScore = s.score > 20000 && s.score >= s.highScore;
+    s.lives = this.player ? this.player.lives : (this.scoreManager ? this.scoreManager.lives : 3);
+    s.reserveLives = Math.max(0, s.lives - 1);
+    s.stage = this.scoreManager ? this.scoreManager.stage : 1;
+
+    // Mutate power-up slots in-place (Zero-GC)
+    const buffs = this.powerUpManager ? this.powerUpManager.buffState : null;
+    let count = 0;
+    const slots = s.activePowerUps as ActivePowerUpTelemetry[];
+
+    if (buffs && slots && slots.length >= 9) {
+      const s0 = slots[0];
+      const s1 = slots[1];
+      const s2 = slots[2];
+      const s3 = slots[3];
+      const s4 = slots[4];
+      const s5 = slots[5];
+      const s6 = slots[6];
+      const s7 = slots[7];
+      const s8 = slots[8];
+
+      if (s0 && s1 && s2 && s3 && s4 && s5 && s6 && s7 && s8) {
+        // 0: Rapid Fire
+        s0.remainingTime = buffs.rapidFireTimer;
+        s0.remainingDuration = buffs.rapidFireTimer;
+        s0.progress = Math.min(1.0, buffs.rapidFireTimer / 15.0);
+        s0.isActive = buffs.rapidFireTimer > 0;
+        if (s0.isActive) count++;
+
+        // 1: Kinetic Shield
+        const hasShield = buffs.hasShield || (this.player ? this.player.hasShield : false);
+        s1.isActive = hasShield;
+        s1.progress = hasShield ? 1.0 : 0.0;
+        s1.remainingTime = hasShield ? 1 : 0;
+        s1.remainingDuration = hasShield ? 1 : 0;
+        if (s1.isActive) count++;
+
+        // 2: Scatter Shot
+        s2.remainingTime = buffs.scatterShotTimer;
+        s2.remainingDuration = buffs.scatterShotTimer;
+        s2.progress = Math.min(1.0, buffs.scatterShotTimer / 15.0);
+        s2.isActive = buffs.scatterShotTimer > 0;
+        if (s2.isActive) count++;
+
+        // 3: Engine Booster
+        s3.remainingTime = buffs.engineBoosterTimer;
+        s3.remainingDuration = buffs.engineBoosterTimer;
+        s3.progress = Math.min(1.0, buffs.engineBoosterTimer / 15.0);
+        s3.isActive = buffs.engineBoosterTimer > 0;
+        if (s3.isActive) count++;
+
+        // 4: Chrono Field
+        s4.remainingTime = buffs.chronoFieldTimer;
+        s4.remainingDuration = buffs.chronoFieldTimer;
+        s4.progress = Math.min(1.0, buffs.chronoFieldTimer / 6.0);
+        s4.isActive = buffs.chronoFieldTimer > 0;
+        if (s4.isActive) count++;
+
+        // 5: Reflection Shield
+        const hasReflect =
+          buffs.hasReflectionShield ||
+          (this.player ? this.player.hasReflectionShield : false) ||
+          buffs.reflectionShieldTimer > 0;
+        s5.remainingTime = buffs.reflectionShieldTimer;
+        s5.remainingDuration = buffs.reflectionShieldTimer;
+        s5.progress = Math.min(1.0, buffs.reflectionShieldTimer / 12.0);
+        s5.isActive = hasReflect;
+        s5.count = this.player ? this.player.reflectionShieldHp : 3;
+        if (s5.isActive) count++;
+
+        // 6: EMP Collector
+        s6.remainingTime = buffs.empCollectorTimer;
+        s6.remainingDuration = buffs.empCollectorTimer;
+        s6.progress = Math.min(1.0, buffs.empCollectorTimer / 5.0);
+        s6.isActive = buffs.empCollectorTimer > 0;
+        if (s6.isActive) count++;
+
+        // 7: Phase Drive
+        s7.remainingTime = buffs.phaseDriveTimer;
+        s7.remainingDuration = buffs.phaseDriveTimer;
+        s7.progress = Math.min(1.0, buffs.phaseDriveTimer / 15.0);
+        s7.isActive = buffs.phaseDriveTimer > 0;
+        if (s7.isActive) count++;
+
+        // 8: Antimatter Plasma
+        s8.remainingTime = buffs.plasmaBlasterTimer;
+        s8.remainingDuration = buffs.plasmaBlasterTimer;
+        s8.progress = Math.min(1.0, buffs.plasmaBlasterTimer / 7.0);
+        s8.isActive = buffs.plasmaBlasterTimer > 0;
+        if (s8.isActive) count++;
+      }
+    }
+
+    s.activePowerUpCount = count;
+
+    // Special moves telemetry
+    if (this.specialMovesManager) {
+      const charge = (this.specialMovesManager.energy / this.specialMovesManager.maxEnergy) * 100;
+      s.specialEnergy = charge;
+      s.specialCharge = charge;
+      s.isSpecialReady = this.specialMovesManager.isReady();
+      s.specialReady = s.isSpecialReady;
+      s.specialActive = this.specialMovesManager.isActive;
+      s.selectedSpecial = this.specialMovesManager.selectedMove;
+    }
+
+    // Utilities
+    s.isMuted = this.audioContextManager ? this.audioContextManager.getIsMuted() : false;
+    s.isFullscreen = this.fullscreenManager ? this.fullscreenManager.isFullscreen() : false;
+    s.isPaused = this.state === 'PAUSED';
+    s.canPause = this.state === 'PLAYING' || this.state === 'CHALLENGING_STAGE' || this.state === 'PAUSED';
   }
 
   public isReady(): boolean {

@@ -23,6 +23,9 @@ export interface HUDState {
   twoPlayerMode?: boolean;
   playerTwoScore?: number;
   stageBadges?: number[];
+  specialEnergy?: number;
+  isSpecialReady?: boolean;
+  selectedSpecial?: string;
 }
 
 export type TextAlignment = 'left' | 'center' | 'right';
@@ -32,6 +35,9 @@ export interface DrawTextOptions {
   align?: TextAlignment;
   scale?: number;
   spacing?: number;
+  scramble?: boolean;
+  scrambleRatio?: number;
+  scrambleSeed?: number;
 }
 
 export enum BadgeType {
@@ -146,7 +152,20 @@ export const BADGE_30_MATRIX: string[][] = [
   ['Y','.','.','.','.','.','.','.']
 ];
 
-export const BADGE_20_MATRIX: string[][] = BADGE_30_MATRIX;
+export const BADGE_20_MATRIX: string[][] = [
+  ['Y','R','W','R','W','R','R','.'],
+  ['Y','R','W','R','W','R','R','.'],
+  ['Y','R','W','R','W','R','R','.'],
+  ['Y','R','W','R','W','R','R','.'],
+  ['Y','R','W','R','W','R','R','.'],
+  ['Y','R','W','R','W','R','R','.'],
+  ['Y','.','.','.','.','.','.','.'],
+  ['Y','.','.','.','.','.','.','.'],
+  ['Y','.','.','.','.','.','.','.'],
+  ['Y','.','.','.','.','.','.','.'],
+  ['Y','.','.','.','.','.','.','.'],
+  ['Y','.','.','.','.','.','.','.']
+];
 
 export const BADGE_10_MATRIX: string[][] = [
   ['Y','R','R','R','R','R','R'],
@@ -369,9 +388,23 @@ export class HUD {
     }
 
     const upper = text.toUpperCase();
+    const scramble = Boolean(options?.scramble);
+    const scrambleRatio = options?.scrambleRatio ?? 0.5;
+    const scrambleSeed = options?.scrambleSeed ?? 42;
+    const HEX_CHARS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'] as const;
+
     for (let i = 0; i < upper.length; i++) {
-      const ch = upper[i];
+      let ch = upper[i];
       if (!ch) continue;
+
+      if (scramble && ch !== ' ') {
+        const pseudoRand = (((scrambleSeed + i * 1013) * 9301 + 49297) % 233280) / 233280;
+        if (pseudoRand < scrambleRatio) {
+          const hexIdx = Math.floor(pseudoRand * 160) % 16;
+          ch = HEX_CHARS[hexIdx]!;
+        }
+      }
+
       const glyphIndex = HUD.charIndexMap.get(ch);
 
       if (glyphIndex !== undefined && ch !== ' ') {
@@ -449,6 +482,76 @@ export class HUD {
   public renderFooter(ctx: CanvasRenderingContext2D, state: HUDState): void {
     this.renderLives(ctx, state.lives);
     this.renderStageBadges(ctx, state.stage);
+    if (state.specialEnergy !== undefined) {
+      this.renderSpecialGauge(ctx, state.specialEnergy, !!state.isSpecialReady, state.selectedSpecial);
+    }
+  }
+
+  public renderSpecialGauge(
+    ctx: CanvasRenderingContext2D,
+    energy: number,
+    isReady: boolean,
+    selectedSpecial?: string
+  ): void {
+    const x = 86;
+    const y = 278;
+    const width = 54;
+    const height = 6;
+
+    ctx.save();
+
+    // 1. Frame border & Background
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(x, y, width, height);
+    ctx.strokeStyle = isReady ? '#FFFF00' : '#AAAAAA';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x - 0.5, y - 0.5, width + 1, height + 1);
+
+    // 2. Segmented Fill (10 segments, each 4px width + 1px gap)
+    const fillPercent = Math.max(0, Math.min(100, energy)) / 100;
+    const filledSegments = Math.floor(fillPercent * 10);
+    const partialFraction = (fillPercent * 10) - filledSegments;
+
+    for (let i = 0; i < 10; i++) {
+      const segX = x + 1 + i * 5;
+      const segY = y + 1;
+      const segW = 4;
+      const segH = height - 2;
+
+      if (i < filledSegments) {
+        if (isReady) {
+          const flash = Math.floor(Date.now() / 125) % 2 === 0;
+          ctx.fillStyle = flash ? '#FFFFFF' : '#FFFF00';
+        } else if (i >= 5) {
+          ctx.fillStyle = '#FFFF00';
+        } else {
+          ctx.fillStyle = '#00FFFF';
+        }
+        ctx.fillRect(segX, segY, segW, segH);
+      } else if (i === filledSegments && partialFraction > 0.05) {
+        ctx.fillStyle = i >= 5 ? '#FFFF00' : '#00FFFF';
+        ctx.fillRect(segX, segY, segW * partialFraction, segH);
+      }
+    }
+
+    // 3. Label / Banner above bar (avoids reserve lives collision at X=54..79)
+    if (isReady) {
+      const flash = Math.floor(Date.now() / 125) % 2 === 0;
+      if (flash) {
+        HUD.drawText(ctx, 'SP READY', x, y - 8, {
+          color: PALETTE.YELLOW,
+          spacing: 1,
+        });
+      }
+    } else {
+      const label = selectedSpecial === 'CHRONO_FREEZE' ? 'CF' : (selectedSpecial === 'WARP_RAM' ? 'WR' : 'SP');
+      HUD.drawText(ctx, label, x, y - 8, {
+        color: PALETTE.GREY_LIGHT,
+        spacing: 1,
+      });
+    }
+
+    ctx.restore();
   }
 
   public renderLives(ctx: CanvasRenderingContext2D, totalLives: number): void {
@@ -478,7 +581,7 @@ export class HUD {
       const w = dim ? dim.width : 8;
       const x = rightX - w;
 
-      if (x < 96) break; // Crowding protection against reserve lives collision
+      if (x < 144) break; // Crowding protection against Special Moves Energy Gauge (ends at X=140)
 
       if (ctx.drawImage) {
         ctx.drawImage(baked, x, y);

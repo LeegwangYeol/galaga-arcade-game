@@ -17,6 +17,7 @@
 
 import { SpriteRenderer } from '../renderer/SpriteRenderer';
 import type { Rect, Vector2D, InputState, PlayerData, PlayerState } from '../types';
+import { PowerUpType, normalizePowerUpType } from '../core/powerups/types';
 
 export type PlayerStateType =
   | 'normal'
@@ -34,20 +35,6 @@ export type PlayerStateType =
   | 'DESTROYED'
   | 'RESPAWNING';
 
-export interface PlayerConfig {
-  x?: number;
-  y?: number;
-  speed?: number;
-  lives?: number;
-}
-
-export interface BulletSpawnRequest {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-}
-
 export interface RescuedFighterState {
   x: number;
   y: number;
@@ -57,19 +44,34 @@ export interface RescuedFighterState {
   angle: number;
 }
 
-export class Player {
-  // Spatial & Physics Constants
-  public static readonly BASELINE_Y = 250;
-  public static readonly SPEED = 260; // Pixels per second
-  public static readonly SINGLE_WIDTH = 16;
-  public static readonly DUAL_WIDTH = 32;
-  public static readonly HEIGHT = 16;
-  public static readonly FIRE_COOLDOWN = 0.12; // 120ms between trigger cycles
-  public static readonly INVULNERABLE_DURATION = 3.0; // 3.0 seconds blinking invulnerability
-  public static readonly DEATH_DURATION = 1.2; // 1.2 seconds explosion delay
-  public static readonly RESCUE_DESCENT_SPEED = 120; // Pixels per second
+export interface BulletSpawnRequest {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+}
 
-  // Position & Velocity
+export interface PlayerConfig {
+  x?: number;
+  y?: number;
+  lives?: number;
+  game?: any;
+}
+
+export class Player {
+  // Movement & Geometry Constants
+  public static readonly SPEED = 260; // 260 px/s (1.0x baseline speed)
+  public static readonly BASELINE_Y = 250;
+  public static readonly HITBOX_WIDTH_SINGLE = 12;
+  public static readonly HITBOX_WIDTH_DUAL = 24;
+  public static readonly HITBOX_HEIGHT = 12;
+  public static readonly FIRE_COOLDOWN = 0.12; // 120ms baseline (halved to 60ms with Rapid Fire)
+  public static readonly INVULNERABLE_DURATION = 3.0; // 3.0s respawn blinking intangibility
+  public static readonly RESCUE_DESCENT_SPEED = 120; // Pixels per second
+  public static readonly RESCUE_ANGULAR_VELOCITY = Math.PI * 4; // 720 deg/s
+  public static readonly DEATH_DURATION = 0.5; // 0.5s explosion delay
+
+  // Spatial Coordinates
   public x: number = 112;
   public y: number = Player.BASELINE_Y;
   public vx: number = 0;
@@ -102,17 +104,47 @@ export class Player {
   // Active missile reference counter (tracked synchronously with Bullet pool)
   public activeMissileCount: number = 0;
 
+  // Active Upgrade State
+  public rapidFireTimer: number = 0;
+  public scatterShotTimer: number = 0;
+  public engineBoosterTimer: number = 0;
+  public hasShield: boolean = false;
+  public shieldHp: number = 0;
+  public shieldFlashTimer: number = 0;
+  public empBombCount: number = 0;
+  public animTimer: number = 0;
+  public isInvincibleCheat: boolean = false;
+  public isWarpRamActive: boolean = false;
+  public game?: any;
+
+  // M19 Power-Up Buff States
+  public chronoFieldTimer: number = 0;
+  public reflectionShieldTimer: number = 0;
+  public hasReflectionShield: boolean = false;
+  public reflectionShieldHp: number = 0;
+  public empCollectorTimer: number = 0;
+  public phaseDriveTimer: number = 0;
+  public phaseWarpCooldown: number = 0;
+  public phaseGhostTimer: number = 0;
+  public phaseGhostStartX: number = 0;
+  public plasmaBlasterTimer: number = 0;
+  public plasmaTickTimer: number = 0;
+
   // Events / Callbacks
   public onFire?: (spawns: BulletSpawnRequest[]) => void;
   public onExplode?: (x: number, y: number, isDualPartial: boolean) => void;
   public onDocked?: () => void;
   public onGameOver?: () => void;
   public onCapturedComplete?: (x: number, y: number) => void;
+  public onShieldDeflect?: (x: number, y: number) => void;
+  public onReflectionDeflect?: (x: number, y: number, threat?: Rect) => void;
+  public onPlasmaBeamTick?: (x: number, y: number, isDual: boolean) => void;
 
   constructor(config?: PlayerConfig) {
     this.x = config?.x ?? 112;
     this.y = config?.y ?? Player.BASELINE_Y;
     this.lives = config?.lives ?? 3;
+    this.game = config?.game;
     this.reset(this.x, this.y, this.lives);
   }
 
@@ -158,6 +190,60 @@ export class Player {
     this.vy = vel.y;
   }
 
+  public get hasRapidFire(): boolean {
+    return this.rapidFireTimer > 0;
+  }
+
+  public get hasScatterShot(): boolean {
+    return this.scatterShotTimer > 0;
+  }
+
+  public get hasEngineBooster(): boolean {
+    return this.engineBoosterTimer > 0;
+  }
+
+  public get hasChronoField(): boolean {
+    return this.chronoFieldTimer > 0;
+  }
+
+  public get hasReflectionShieldActive(): boolean {
+    return this.hasReflectionShield || this.reflectionShieldTimer > 0;
+  }
+
+  public get hasEmpCollector(): boolean {
+    return this.empCollectorTimer > 0;
+  }
+
+  public get hasPhaseDrive(): boolean {
+    return this.phaseDriveTimer > 0;
+  }
+
+  public get hasAntimatterPlasma(): boolean {
+    return this.plasmaBlasterTimer > 0;
+  }
+
+  public get speed(): number {
+    return this.hasEngineBooster ? Player.SPEED * 1.5 : Player.SPEED;
+  }
+
+  public get currentSpeed(): number {
+    return this.speed;
+  }
+
+  public getMaxMissileQuota(): number {
+    if (this.isDual) {
+      if (this.hasScatterShot) {
+        return this.hasRapidFire ? 16 : 12;
+      }
+      return this.hasRapidFire ? 8 : 4;
+    } else {
+      if (this.hasScatterShot) {
+        return this.hasRapidFire ? 8 : 6;
+      }
+      return this.hasRapidFire ? 4 : 2;
+    }
+  }
+
   public get canFire(): boolean {
     const s = this._state;
     const isControllable =
@@ -172,12 +258,13 @@ export class Player {
       return false;
     }
 
-    const isDual = this.isDual;
-    const maxMissiles = isDual ? 4 : 2;
-    if (isDual) {
-      return this.fireCooldownTimer <= 0 && this.activeMissileCount <= maxMissiles - 2;
+    if (this.hasAntimatterPlasma) {
+      return this.fireCooldownTimer <= 0;
     }
-    return this.fireCooldownTimer <= 0 && this.activeMissileCount < maxMissiles;
+
+    const quota = this.getMaxMissileQuota();
+    const volleySize = (this.isDual ? 2 : 1) * (this.hasScatterShot ? 3 : 1);
+    return this.fireCooldownTimer <= 0 && (this.activeMissileCount + volleySize <= quota);
   }
 
   public get respawnTimerMs(): number {
@@ -226,6 +313,54 @@ export class Player {
     this.captureAngle = 0;
     this.rescuedFighter.active = false;
     this.activeMissileCount = 0;
+    this.rapidFireTimer = 0;
+    this.scatterShotTimer = 0;
+    this.engineBoosterTimer = 0;
+    this.hasShield = false;
+    this.shieldHp = 0;
+    this.shieldFlashTimer = 0;
+    this.empBombCount = 0;
+    this.animTimer = 0;
+    this.isWarpRamActive = false;
+    this.chronoFieldTimer = 0;
+    this.reflectionShieldTimer = 0;
+    this.hasReflectionShield = false;
+    this.reflectionShieldHp = 0;
+    this.empCollectorTimer = 0;
+    this.phaseDriveTimer = 0;
+    this.phaseWarpCooldown = 0;
+    this.phaseGhostTimer = 0;
+    this.plasmaBlasterTimer = 0;
+    this.plasmaTickTimer = 0;
+  }
+
+  public applyPowerUp(type: PowerUpType | string): void {
+    const norm = normalizePowerUpType(type);
+    if (norm === PowerUpType.RAPID_FIRE) {
+      this.rapidFireTimer = Math.min(30.0, this.rapidFireTimer + 15.0);
+    } else if (norm === PowerUpType.SCATTER_SHOT) {
+      this.scatterShotTimer = Math.min(30.0, this.scatterShotTimer + 15.0);
+    } else if (norm === PowerUpType.ENGINE_BOOSTER) {
+      this.engineBoosterTimer = Math.min(30.0, this.engineBoosterTimer + 15.0);
+    } else if (norm === PowerUpType.KINETIC_SHIELD) {
+      this.hasShield = true;
+      this.shieldHp = 1;
+    } else if (norm === PowerUpType.EMP_BOMB) {
+      this.empBombCount = Math.min(3, this.empBombCount + 1);
+    } else if (norm === PowerUpType.CHRONO_FIELD) {
+      this.chronoFieldTimer = Math.min(20.0, this.chronoFieldTimer + 6.0);
+      this.game?.soundSynth?.playChronoFieldActivate?.();
+    } else if (norm === PowerUpType.REFLECTION_SHIELD) {
+      this.hasReflectionShield = true;
+      this.reflectionShieldTimer = Math.min(30.0, this.reflectionShieldTimer + 12.0);
+      this.reflectionShieldHp = 3;
+    } else if (norm === PowerUpType.EMP_COLLECTOR) {
+      this.empCollectorTimer = Math.min(20.0, this.empCollectorTimer + 5.0);
+    } else if (norm === PowerUpType.PHASE_DRIVE) {
+      this.phaseDriveTimer = Math.min(30.0, this.phaseDriveTimer + 15.0);
+    } else if (norm === PowerUpType.ANTIMATTER_PLASMA) {
+      this.plasmaBlasterTimer = Math.min(25.0, this.plasmaBlasterTimer + 7.0);
+    }
   }
 
   public respawn(): void {
@@ -247,7 +382,57 @@ export class Player {
   // ==========================================================================
 
   public update(dt: number, input?: InputState): void {
+    this.animTimer += dt;
+
+    if (this.shieldFlashTimer > 0) {
+      this.shieldFlashTimer = Math.max(0, this.shieldFlashTimer - dt);
+    }
+
+    // 0. Update buff timers (paused during tractor beam capture)
+    if (this._state !== 'capturing' && this._state !== 'CAPTURING') {
+      if (this.rapidFireTimer > 0) {
+        this.rapidFireTimer = Math.max(0, this.rapidFireTimer - dt);
+      }
+      if (this.scatterShotTimer > 0) {
+        this.scatterShotTimer = Math.max(0, this.scatterShotTimer - dt);
+      }
+      if (this.engineBoosterTimer > 0) {
+        this.engineBoosterTimer = Math.max(0, this.engineBoosterTimer - dt);
+      }
+      if (this.chronoFieldTimer > 0) {
+        this.chronoFieldTimer = Math.max(0, this.chronoFieldTimer - dt);
+      }
+      if (this.reflectionShieldTimer > 0) {
+        this.reflectionShieldTimer = Math.max(0, this.reflectionShieldTimer - dt);
+        if (this.reflectionShieldTimer <= 0 && this.reflectionShieldHp <= 0) {
+          this.hasReflectionShield = false;
+        }
+      }
+      if (this.empCollectorTimer > 0) {
+        this.empCollectorTimer = Math.max(0, this.empCollectorTimer - dt);
+      }
+      if (this.phaseDriveTimer > 0) {
+        this.phaseDriveTimer = Math.max(0, this.phaseDriveTimer - dt);
+      }
+      if (this.plasmaBlasterTimer > 0) {
+        this.plasmaBlasterTimer = Math.max(0, this.plasmaBlasterTimer - dt);
+        this.plasmaTickTimer += dt;
+        while (this.plasmaTickTimer >= 0.1) {
+          this.plasmaTickTimer -= 0.1;
+          this.onPlasmaBeamTick?.(this.x, this.y, this.isDual);
+        }
+      } else {
+        this.plasmaTickTimer = 0;
+      }
+    }
+
     // 1. Update timers
+    if (this.phaseWarpCooldown > 0) {
+      this.phaseWarpCooldown = Math.max(0, this.phaseWarpCooldown - dt);
+    }
+    if (this.phaseGhostTimer > 0) {
+      this.phaseGhostTimer = Math.max(0, this.phaseGhostTimer - dt);
+    }
     if (this.fireCooldownTimer > 0) {
       this.fireCooldownTimer = Math.max(0, this.fireCooldownTimer - dt);
     }
@@ -279,22 +464,23 @@ export class Player {
 
     // A. 1D Horizontal Steering
     let targetVx = 0;
+    const currentSpeed = this.speed;
 
     const left = input.moveLeft || input.touchLeft;
     const right = input.moveRight || input.touchRight;
 
     if (left && !right) {
-      targetVx = -Player.SPEED;
+      targetVx = -currentSpeed;
     } else if (right && !left) {
-      targetVx = Player.SPEED;
+      targetVx = currentSpeed;
     } else if (input.pointerActive && input.pointerX !== null) {
       // Pointer absolute steering with anti-jitter deadzone
       const dx = input.pointerX - this.x;
-      if (Math.abs(dx) <= Player.SPEED * dt) {
+      if (Math.abs(dx) <= currentSpeed * dt) {
         this.x = input.pointerX;
         targetVx = 0;
       } else {
-        targetVx = Math.sign(dx) * Player.SPEED;
+        targetVx = Math.sign(dx) * currentSpeed;
       }
     }
 
@@ -304,10 +490,31 @@ export class Player {
     // B. Boundary Clamping
     this.clampPosition();
 
+    // Phase Warp input check (Milestone M19)
+    if (this.phaseDriveTimer > 0 && this.phaseWarpCooldown <= 0 && this.game?.inputHandler) {
+      const warpDir = this.game.inputHandler.consumePhaseWarp();
+      if (warpDir !== null) {
+        this.triggerPhaseWarp(warpDir);
+      }
+    }
+
     // C. Weapon Firing Logic
     if (input.fire || input.touchFire) {
       this.attemptFire();
     }
+  }
+
+  public triggerPhaseWarp(direction: number = 1): void {
+    if (this.phaseWarpCooldown > 0) return;
+    this.phaseGhostStartX = this.x;
+    const offset = (direction >= 0 ? 1 : -1) * 40;
+    const minX = this.isDual ? 16 : 12;
+    const maxX = this.isDual ? 208 : 212;
+    this.x = Math.max(minX, Math.min(maxX, this.x + offset));
+    this.invulnerableTimer = Math.max(this.invulnerableTimer, 0.4);
+    this.phaseGhostTimer = 0.4;
+    this.phaseWarpCooldown = 0.5;
+    this.game?.soundSynth?.playPhaseDriveBlink?.();
   }
 
   private updateDocking(dt: number, input?: InputState): void {
@@ -382,23 +589,62 @@ export class Player {
       return false;
     }
 
-    const isDual = this.isDual;
-    if (isDual) {
-      this.fireCooldownTimer = Player.FIRE_COOLDOWN;
-      const spawns: BulletSpawnRequest[] = [
-        { x: this.x - 8, y: this.y - 8, vx: 0, vy: -480 },
-        { x: this.x + 8, y: this.y - 8, vx: 0, vy: -480 },
-      ];
-      this.onFire?.(spawns);
-      return true;
-    } else {
-      this.fireCooldownTimer = Player.FIRE_COOLDOWN;
-      const spawns: BulletSpawnRequest[] = [
-        { x: this.x, y: this.y - 8, vx: 0, vy: -480 },
-      ];
-      this.onFire?.(spawns);
+    if (this.hasAntimatterPlasma) {
+      this.fireCooldownTimer = 0.05;
+      this.game?.soundSynth?.playPlasmaBeamPulse?.();
       return true;
     }
+
+    // Rapid Fire halves weapon cooldown (120ms -> 60ms)
+    this.fireCooldownTimer = this.hasRapidFire
+      ? Player.FIRE_COOLDOWN * 0.5
+      : Player.FIRE_COOLDOWN;
+
+    const V = 480;
+    const sin15 = 0.258819;
+    const cos15 = 0.965926;
+    const vxSpread = V * sin15; // ~124.23 px/s
+    const vySpread = -V * cos15; // ~-463.64 px/s
+
+    const spawns: BulletSpawnRequest[] = [];
+
+    if (this.isDual) {
+      const leftX = this.x - 8;
+      const rightX = this.x + 8;
+      const gunY = this.y - 8;
+
+      if (this.hasScatterShot) {
+        // Twin 3-way spreads (6 streams total)
+        // Left Cannon
+        spawns.push({ x: leftX, y: gunY, vx: -vxSpread, vy: vySpread });
+        spawns.push({ x: leftX, y: gunY, vx: 0, vy: -V });
+        spawns.push({ x: leftX, y: gunY, vx: vxSpread, vy: vySpread });
+        // Right Cannon
+        spawns.push({ x: rightX, y: gunY, vx: -vxSpread, vy: vySpread });
+        spawns.push({ x: rightX, y: gunY, vx: 0, vy: -V });
+        spawns.push({ x: rightX, y: gunY, vx: vxSpread, vy: vySpread });
+      } else {
+        // Standard Twin Parallel Missiles
+        spawns.push({ x: leftX, y: gunY, vx: 0, vy: -V });
+        spawns.push({ x: rightX, y: gunY, vx: 0, vy: -V });
+      }
+    } else {
+      const gunX = this.x;
+      const gunY = this.y - 8;
+
+      if (this.hasScatterShot) {
+        // Single Fighter 3-way spread (0°, ±15°)
+        spawns.push({ x: gunX, y: gunY, vx: -vxSpread, vy: vySpread });
+        spawns.push({ x: gunX, y: gunY, vx: 0, vy: -V });
+        spawns.push({ x: gunX, y: gunY, vx: vxSpread, vy: vySpread });
+      } else {
+        // Standard Single Missile
+        spawns.push({ x: gunX, y: gunY, vx: 0, vy: -V });
+      }
+    }
+
+    this.onFire?.(spawns);
+    return true;
   }
 
   // ==========================================================================
@@ -406,6 +652,9 @@ export class Player {
   // ==========================================================================
 
   public isInvulnerable(): boolean {
+    if (this.isInvincibleCheat) {
+      return true;
+    }
     return (
       this.invulnerableTimer > 0 ||
       this._state === 'respawning' ||
@@ -417,7 +666,7 @@ export class Player {
 
   /**
    * Evaluates collision against a threat AABB (bullet or diving alien).
-   * Supports asymmetrical partial destruction for Dual Fighters.
+   * Supports Kinetic Deflector Shield absorption and asymmetrical partial destruction.
    */
   public hitTestAndDamage(threat: Rect): boolean {
     if (
@@ -434,35 +683,63 @@ export class Player {
       const leftHull: Rect = {
         x: this.x - 16,
         y: this.y - 6,
-        width: 15,
+        width: 16,
         height: 12,
       };
       const rightHull: Rect = {
-        x: this.x + 1,
+        x: this.x,
         y: this.y - 6,
-        width: 15,
+        width: 16,
         height: 12,
       };
 
       const hitLeft = this.checkAABB(threat, leftHull);
       const hitRight = this.checkAABB(threat, rightHull);
 
-      if (hitLeft && !hitRight) {
-        // Partial destruction: Left hull destroyed
-        this.onExplode?.(this.x - 8, this.y, true);
-        this._state = 'normal';
-        this.x = Math.min(212, Math.max(12, this.x + 8));
-        return true;
-      } else if (hitRight && !hitLeft) {
-        // Partial destruction: Right hull destroyed
-        this.onExplode?.(this.x + 8, this.y, true);
-        this._state = 'normal';
-        this.x = Math.min(212, Math.max(12, this.x - 8));
-        return true;
-      } else if (hitLeft && hitRight) {
-        // Catastrophic hit: Both hulls destroyed
-        this.destroy();
-        return true;
+      if (hitLeft || hitRight) {
+        // 0. Kinetic Reflection Shield Interception (Protects BOTH hulls & returns counter-missile)
+        if (this.hasReflectionShieldActive) {
+          this.reflectionShieldHp = Math.max(0, this.reflectionShieldHp - 1);
+          if (this.reflectionShieldHp <= 0 && this.reflectionShieldTimer <= 0) {
+            this.hasReflectionShield = false;
+          }
+          this.shieldFlashTimer = 0.3;
+          this.invulnerableTimer = Math.max(this.invulnerableTimer, 0.5);
+          this.onReflectionDeflect?.(this.x, this.y, threat);
+          this.game?.soundSynth?.playReflectionDeflect?.();
+          return false;
+        }
+
+        // 1. Kinetic Deflector Shield Interception (Protects BOTH hulls!)
+        if (this.hasShield || this.shieldHp > 0) {
+          this.hasShield = false;
+          this.shieldHp = 0;
+          this.shieldFlashTimer = 0.3;
+          this.invulnerableTimer = Math.max(this.invulnerableTimer, 1.0);
+          this.onShieldDeflect?.(this.x, this.y);
+          return false;
+        }
+
+        // 2. Asymmetrical Damage Processing (Shield Depleted)
+        if (hitLeft && !hitRight) {
+          // Partial destruction: Left hull destroyed
+          this.onExplode?.(this.x - 8, this.y, true);
+          this._state = 'normal';
+          this.x = Math.min(212, Math.max(12, this.x + 8));
+          this.invulnerableTimer = Math.max(this.invulnerableTimer, 0.5);
+          return true;
+        } else if (hitRight && !hitLeft) {
+          // Partial destruction: Right hull destroyed
+          this.onExplode?.(this.x + 8, this.y, true);
+          this._state = 'normal';
+          this.x = Math.min(212, Math.max(12, this.x - 8));
+          this.invulnerableTimer = Math.max(this.invulnerableTimer, 0.5);
+          return true;
+        } else if (hitLeft && hitRight) {
+          // Catastrophic hit: Both hulls destroyed
+          this.destroy();
+          return true;
+        }
       }
       return false;
     } else if (
@@ -479,6 +756,29 @@ export class Player {
       };
 
       if (this.checkAABB(threat, singleHitbox)) {
+        // 0. Kinetic Reflection Shield Interception
+        if (this.hasReflectionShieldActive) {
+          this.reflectionShieldHp = Math.max(0, this.reflectionShieldHp - 1);
+          if (this.reflectionShieldHp <= 0 && this.reflectionShieldTimer <= 0) {
+            this.hasReflectionShield = false;
+          }
+          this.shieldFlashTimer = 0.3;
+          this.invulnerableTimer = Math.max(this.invulnerableTimer, 0.5);
+          this.onReflectionDeflect?.(this.x, this.y, threat);
+          this.game?.soundSynth?.playReflectionDeflect?.();
+          return false;
+        }
+
+        // Kinetic Deflector Shield Interception
+        if (this.hasShield || this.shieldHp > 0) {
+          this.hasShield = false;
+          this.shieldHp = 0;
+          this.shieldFlashTimer = 0.3;
+          this.invulnerableTimer = Math.max(this.invulnerableTimer, 1.0);
+          this.onShieldDeflect?.(this.x, this.y);
+          return false;
+        }
+
         this.destroy();
         return true;
       }
@@ -495,6 +795,20 @@ export class Player {
     this.deathTimer = Player.DEATH_DURATION;
     this.lives -= 1;
     this.rescuedFighter.active = false;
+    this.rapidFireTimer = 0;
+    this.scatterShotTimer = 0;
+    this.engineBoosterTimer = 0;
+    this.hasShield = false;
+    this.shieldHp = 0;
+    this.shieldFlashTimer = 0;
+    this.chronoFieldTimer = 0;
+    this.reflectionShieldTimer = 0;
+    this.hasReflectionShield = false;
+    this.reflectionShieldHp = 0;
+    this.empCollectorTimer = 0;
+    this.phaseDriveTimer = 0;
+    this.phaseWarpCooldown = 0;
+    this.plasmaBlasterTimer = 0;
   }
 
   // ==========================================================================
@@ -523,6 +837,16 @@ export class Player {
     };
   }
 
+  public cancelCapture(): void {
+    if (this._state === 'capturing' || (this._state as any) === 'CAPTURING') {
+      this._state = 'normal';
+      this.captureTimer = 0;
+      this.captureAngle = 0;
+      this.clampPosition();
+      this.invulnerableTimer = 1.0;
+    }
+  }
+
   // ==========================================================================
   // Helper & Math Methods
   // ==========================================================================
@@ -532,7 +856,11 @@ export class Player {
     const minX = isDual ? 16 : 12;
     const maxX = isDual ? 208 : 212;
     this.x = Math.max(minX, Math.min(maxX, this.x));
-    this.y = Player.BASELINE_Y;
+
+    const isWarpRam = this.isWarpRamActive || (this.game?.specialMovesManager?.isWarpRamActive?.() ?? false);
+    if (!isWarpRam) {
+      this.y = Player.BASELINE_Y;
+    }
   }
 
   public getHitbox(): Rect {
@@ -576,7 +904,7 @@ export class Player {
     }
 
     // 10Hz blinking during invulnerability / respawn
-    if (this.isInvulnerable()) {
+    if (!this.isInvincibleCheat && this.isInvulnerable()) {
       const isVisible = Math.floor(this.invulnerableTimer * 10) % 2 === 0;
       if (!isVisible) return;
     }
@@ -605,6 +933,69 @@ export class Player {
     } else {
       // Standard single fighter
       SpriteRenderer.draw(ctx, 'PLAYER_FIGHTER', this.x, this.y);
+    }
+
+    // Render Engine Booster Thrusters
+    if (this.hasEngineBooster) {
+      ctx.save();
+      ctx.fillStyle = '#00FFFF';
+      if (this.isDual) {
+        ctx.fillRect(Math.round(this.x - 8 - 1), Math.round(this.y + 7), 2, 4);
+        ctx.fillRect(Math.round(this.x + 8 - 1), Math.round(this.y + 7), 2, 4);
+      } else {
+        ctx.fillRect(Math.round(this.x - 1), Math.round(this.y + 7), 2, 4);
+      }
+      ctx.restore();
+    }
+
+    // Render Chrono Field Distortion Ring
+    if (this.hasChronoField) {
+      SpriteRenderer.drawChronoFieldRing(ctx, this.x, this.y, 120, this.animTimer);
+    }
+
+    // Render Singularity EMP Collector Vortex
+    if (this.hasEmpCollector) {
+      SpriteRenderer.drawEmpCollectorVortex(ctx, this.x, this.y, 90, this.animTimer);
+    }
+
+    // Render Quantum Phase Drive Ghost Trail
+    if (this.phaseGhostTimer > 0) {
+      SpriteRenderer.drawPhaseDriveGhostTrail(
+        ctx,
+        this.phaseGhostStartX,
+        this.y,
+        this.x,
+        this.y,
+        this.isDual,
+        this.phaseGhostTimer
+      );
+    }
+
+    // Render Antimatter Plasma Beam
+    if (this.hasAntimatterPlasma) {
+      SpriteRenderer.drawAntimatterPlasmaBeam(ctx, this.x, this.y, this.isDual, this.animTimer);
+    }
+
+    // Render Kinetic Reflection Shield Barrier
+    if (this.hasReflectionShieldActive) {
+      SpriteRenderer.drawReflectionHexShield(
+        ctx,
+        this.x,
+        this.y,
+        this.isDual,
+        this.shieldFlashTimer,
+        this.animTimer
+      );
+    } else if (this.hasShield || this.shieldFlashTimer > 0) {
+      // Render Kinetic Deflector Shield Barrier
+      SpriteRenderer.drawPlayerShieldBarrier(
+        ctx,
+        this.x,
+        this.y,
+        this.isDual,
+        this.shieldFlashTimer,
+        this.animTimer
+      );
     }
   }
 }

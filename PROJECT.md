@@ -37,11 +37,34 @@
 | M6 | Procedural Web Audio Synth & Pixel Particle System | Web Audio API synthesizer (all 8+ SFX/jingles), procedural sprite matrix baking, explosion particle system | M2 | DONE |
 | M7 | UI/UX, Scoring, LocalStorage & Mobile Controls | HUD overlay, score manager, high score local storage, stage badges, touch virtual D-pad/fire button, game over screen | M3, M4, M5, M6 | DONE |
 | M8 | Final Integration, E2E Test Suite & Adversarial Hardening | Full game integration, 100% E2E test pass (Tiers 1-4), Tier 5 adversarial hardening, production build & GitHub push | M1-M7, TEST_READY | DONE |
+| M9 | 50-Round Non-Linear Scaling Engine | Progressive HP scaling, speed multipliers, dynamic stage badges 1-50, 12 challenging stages | M8 | DONE |
+| M10 | 11 Stellaris Crisis Events | CrisisEventFactory & CrisisEventManager, 11 cosmic disasters, HUD warnings | M9 | DONE |
+| M11 | Power-Up Subsystem & Bounded Pools | Drop tables, Rapid Overclock, Shield Deflector, Spread Blaster, Hyper Drive, ObjectPool invariant | M10 | DONE |
+| M12 | 5 Epic Multi-Phase Boss Encounters | BaseBoss, Cyber Dreadnought (10), Dimensional Leviathan (20), Nanite Colossus (30), Psionic Harbinger (40), Aeternum Core (50) | M11 | DONE |
+| M13 | Allies Support System & 3 Special Moves | 3 Drones (Escort, Aegis, Bomber), 3 Specials (Nova Barrage, Chrono Freeze, Warp Ram), Energy Gauge | M12 | DONE |
+| M14 | Procedural Audio & VFX Shaders | Web Audio procedural sound synthesis for bosses/crises/specials, Canvas 2D VFX shaders, screen flash | M13 | DONE |
+| M15 | 50-Round Memory Bot & QA Controller | __GALAGA_CHEAT__, automated 50-round Playwright simulation bot, < 5MB net heap drift verification | M14 | DONE |
+| M16 | Swarm Adversarial Hardening & Final Victory Audit | 50+ subagent red team hardening, 100% test pass, zero-leak certification, Sentinel completion handoff | M15 | DONE |
+| M17 | Dynamic Difficulty Adjustment (DDA) Engine | Real-time proficiency tracking (accuracy, damage avoidance, clear time), 4 dynamic tuning actuators (dive speed, bullet density, attack aggression, boss HP), bounded multiplier clamping | M16 | DONE |
+| M18 | Glitch Visual & Kinematic Event System | Glitch sectors (13, 26, 38) & random anomalies, 5 scratch canvas raster shaders (scanline tear, chromatic aberration, XOR corrupt, HUD hex scramble), anomalous AI & phantom clones | M17 | DONE |
+| M19 | 5+ Creative Power-Up & Utility Items | Chrono Field (bullet time dilation), Reflection Shield (projectile deflection), EMP Collector (energy conversion), Phase Drive (quantum warp dash), Antimatter Plasma Blaster (piercing beam), bounded pool invariants | M18 | DONE |
+| M20 | QA Cheat Controller Extension & Automated Playwright E2E Simulation | __GALAGA_CHEAT__ extension (glitch triggers, power-up testing, DDA telemetry), automated 50-round Playwright soak test with CDP heap profiling (< 5MB drift) | M19 | DONE |
+| M21 | 40+ Swarm Hardening & Final Victory Audit | 40+ subagent adversarial red team hardening, combinatorial saturation testing, long-session soak validation, 100% test pass, forensic victory audit attestation | M20 | DONE |
+| M22 | Forensic Bug Analysis & Warp Detection Test Suite | Forensic bug analysis across 4 warp archetypes, automated warp detection harness (WarpDetector), empirical thresholding (<= 3.0 px/frame upon docking) | M21 | DONE |
+| M23 | Kinematic Smoothing & Root Cause Elimination | Dynamic formation slot tracking, exponential docking controller, decoupling of tractor altitude & kinetic inversion wraps, zero-GC bounds | M22 | DONE |
+| M24 | Autonomous Swarm QA & Multi-Bug Polishing | Hitbox precision, WebAudio voice headroom/cleanup, HUD relocation, pool flush invariants, 27 polish fixes | M23 | DONE |
+| M25 | Swarm Hardening, Zero-GC Verification, Dual Sync & Victory Audit | 50-round soak test (<5MB drift), 100% test pass (1,608 unit tests), bitwise parity sync, independent victory audit attestation | M24 | DONE |
+| M26 | OpenGraph Metadata & Procedural OG Banner Engine | Social metadata in index.html, procedural 1200x630 banner generator, unit parsing tests | M25 | DONE |
+| M27 | Fullscreen Controller & Viewport Synchronization | FullscreenManager API, toggle button, F/F11 shortcut, viewport resize listeners | M26 | DONE |
+| M28 | Modernized Bottom HUD & Dashboard Panel | Bottom dashboard, score/lives/items/special gauge, controls guide, compact mode | M27 | DONE |
+| M29 | Universal Responsive Layout & Cross-Device Integration | Universal 7:9 letterbox scaling, safe-area insets, mobile touch ergonomics, desktop keyboard | M28 | DONE |
+| M30 | 60+ Swarm Hardening, Multi-Device E2E & Victory Audit | 60+ subagent swarm, cross-browser/viewport Playwright E2E suite, zero-leak verification, final victory audit | M29 | DONE |
+
 
 ## Parallel Track: E2E Testing Track
 | Track | Name | Scope | Status |
 |---|---|---|---|
-| E2E Track | E2E Testing Suite & Harness | Opaque-box test harness, Vitest test suites, Playwright headless browser test (0 JS errors, loop tick), publishes `TEST_READY.md` | PLANNED |
+| E2E Track | E2E Testing Suite & Harness | Opaque-box test harness, Vitest test suites, Playwright headless browser test (0 JS errors, loop tick), publishes `TEST_READY.md` | DONE |
 
 ## Interface Contracts
 ### `math` $\leftrightarrow$ `engine` / `entities`
@@ -106,7 +129,13 @@
 │   ├── ui/
 │   │   ├── HUD.ts                # Score, high score, remaining lives, stage badge rendering
 │   │   ├── InputHandler.ts       # Keyboard, mouse, and mobile touch virtual controls
-│   │   └── Screens.ts            # Title, Pause, Challenging Stage results, Game Over screens
+│   │   ├── Screens.ts            # Title, Pause, Challenging Stage results, Game Over screens
+│   │   ├── FullscreenManager.ts  # Cross-browser Fullscreen API & viewport sync controller
+│   │   └── BottomDashboard.ts    # Modernized cyber-arcade bottom HUD & dashboard component
+│   ├── renderer/
+│   │   ├── SpriteRenderer.ts     # Procedural pixel-art sprite matrix caching
+│   │   ├── GlitchRenderer.ts     # Canvas 2D raster scanline, chromatic, XOR shader effects
+│   │   └── og/                   # Pure procedural PNG encoder & 1200x630 social card banner generator
 │   └── types/
 │       └── index.ts              # Global TypeScript interfaces, enums & type contracts
 ├── tests/

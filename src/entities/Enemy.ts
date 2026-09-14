@@ -11,9 +11,11 @@
  */
 
 import { SpriteRenderer } from '../renderer/SpriteRenderer';
-import { EnemyType, EnemyState } from '../types';
+import { EnemyType, EnemyState, type StageTier, type EnemyDamageResult } from '../types';
 import type { Poolable, Rect } from '../types';
 import type { CompositeBezierPath } from '../math/Bezier';
+
+export { type EnemyDamageResult };
 
 export interface EnemyConfig {
   id?: number | string;
@@ -22,12 +24,11 @@ export interface EnemyConfig {
   col?: number;
   x?: number;
   y?: number;
-}
-
-export interface EnemyDamageResult {
-  destroyed: boolean;
-  points: number;
-  wasDamaged: boolean;
+  tier?: StageTier;
+  health?: number;
+  maxHealth?: number;
+  shield?: number;
+  maxShield?: number;
 }
 
 export interface EnemyBulletRequest {
@@ -42,6 +43,7 @@ export class Enemy implements Poolable {
   // Static Constants
   public static readonly WING_FRAME_DURATION = 0.25; // 250ms per animation frame
   public static readonly DAMAGE_FLASH_DURATION = 0.08; // 80ms white/color flash
+  public static readonly SHIELD_FLASH_DURATION = 0.10; // 100ms shield impact flash
   public static readonly EXPLOSION_DURATION = 0.30; // 300ms explosion delay
   public static readonly BASE_WIDTH = 16;
   public static readonly BASE_HEIGHT = 16;
@@ -62,10 +64,14 @@ export class Enemy implements Poolable {
   public vy: number = 0;
   public rotation: number = 0; // Radians (0 = facing straight UP / -Y, PI = facing DOWN)
 
-  // Health & Visual Hit Feedback
+  // Tier, Health & Kinetic Shield Defense
+  public tier: StageTier = 'CLASSIC';
   public maxHealth: number = 1;
   public health: number = 1;
+  public maxShield: number = 0;
+  public shield: number = 0;
   public damageFlashTimer: number = 0;
+  public shieldFlashTimer: number = 0;
   public deathTimer: number = 0;
 
   // Wing Flutter Animation State
@@ -80,16 +86,35 @@ export class Enemy implements Poolable {
   public capturedFighterEnemy: Enemy | null = null;
   public diveTimer: number = 0;
   public diveSpeed: number = 160; // Pixels per second
+  public speedMultiplier: number = 1.0;
   public returnSlotX: number = 0;
   public returnSlotY: number = 0;
 
   // Path Tracking
   public flightPath: CompositeBezierPath | null = null;
   public pathElapsedMs: number = 0;
+  public hasStartedPath: boolean = false;
 
   // Weapon / Firing Parameters
   public canShoot: boolean = true;
   public fireCooldownTimer: number = 0;
+  public shotsRemainingInDive: number = 1;
+  public isChallenging: boolean = false;
+
+  // M18 Glitch & Anomalous Kinematics
+  public isGlitched: boolean = false;
+  public glitchOffsetX: number = 0;
+  public glitchOffsetY: number = 0;
+  public glitchDisplacementX: number = 0;
+  public glitchDisplacementY: number = 0;
+  public glitchKinematicVx: number = 0;
+  public glitchKinematicVy: number = 0;
+  public isTeleporting: boolean = false;
+  public teleportTimer: number = 0;
+  public isKineticInverted: boolean = false;
+  public kineticInversionTimer: number = 0;
+  public canSpawnMirageClone: boolean = false;
+  public isTractorDiving: boolean = false;
 
   // Callbacks
   public onFireBullet?: (request: EnemyBulletRequest) => void;
@@ -103,7 +128,10 @@ export class Enemy implements Poolable {
         config.row ?? 0,
         config.col ?? 0,
         config.x ?? 0,
-        config.y ?? 0
+        config.y ?? 0,
+        config.tier ?? 'CLASSIC',
+        config.health ?? config.maxHealth,
+        config.shield ?? config.maxShield
       );
     } else {
       this.reset();
@@ -119,7 +147,10 @@ export class Enemy implements Poolable {
     row: number,
     col: number,
     x: number,
-    y: number
+    y: number,
+    tier: StageTier = 'CLASSIC',
+    health?: number,
+    shield?: number
   ): this {
     this.id = id;
     this.type = type;
@@ -132,9 +163,13 @@ export class Enemy implements Poolable {
     this.rotation = 0;
     this.active = true;
     this.state = EnemyState.IN_FORMATION;
+    this.tier = tier;
 
-    // Set Max Health based on hierarchy
-    if (type === EnemyType.BOSS) {
+    // Set Max Health based on hierarchy or explicit override
+    if (health !== undefined) {
+      this.maxHealth = health;
+      this.health = health;
+    } else if (type === EnemyType.BOSS) {
       this.maxHealth = 2;
       this.health = 2;
     } else {
@@ -142,7 +177,16 @@ export class Enemy implements Poolable {
       this.health = 1;
     }
 
+    if (shield !== undefined) {
+      this.maxShield = shield;
+      this.shield = shield;
+    } else {
+      this.maxShield = 0;
+      this.shield = 0;
+    }
+
     this.damageFlashTimer = 0;
+    this.shieldFlashTimer = 0;
     this.deathTimer = 0;
     this.animTimer = Math.random() * Enemy.WING_FRAME_DURATION; // Stagger wing flutter phase
     this.animFrame = 0;
@@ -153,12 +197,34 @@ export class Enemy implements Poolable {
     this.capturedFighterEnemy = null;
     this.diveTimer = 0;
     this.diveSpeed = 160;
+    this.speedMultiplier = 1.0;
     this.flightPath = null;
     this.pathElapsedMs = 0;
+    this.hasStartedPath = false;
     this.canShoot = true;
     this.fireCooldownTimer = 0;
+    this.shotsRemainingInDive = tier === 'DREADNOUGHT' ? 3 : tier === 'ELITE' ? 2 : 1;
+    this.isChallenging = false;
 
     return this;
+  }
+
+  /**
+   * Updates enemy difficulty parameters dynamically.
+   */
+  public setDifficulty(
+    health: number,
+    shield: number,
+    tier: StageTier = 'CLASSIC',
+    speedMultiplier: number = 1.0
+  ): void {
+    this.maxHealth = health;
+    this.health = health;
+    this.maxShield = shield;
+    this.shield = shield;
+    this.tier = tier;
+    this.speedMultiplier = speedMultiplier;
+    this.diveSpeed = 160 * speedMultiplier;
   }
 
   /**
@@ -176,9 +242,13 @@ export class Enemy implements Poolable {
     this.vx = 0;
     this.vy = 0;
     this.rotation = 0;
+    this.tier = 'CLASSIC';
     this.maxHealth = 1;
     this.health = 1;
+    this.maxShield = 0;
+    this.shield = 0;
     this.damageFlashTimer = 0;
+    this.shieldFlashTimer = 0;
     this.deathTimer = 0;
     this.animTimer = 0;
     this.animFrame = 0;
@@ -189,12 +259,29 @@ export class Enemy implements Poolable {
     this.capturedFighterEnemy = null;
     this.diveTimer = 0;
     this.diveSpeed = 160;
+    this.speedMultiplier = 1.0;
     this.returnSlotX = 0;
     this.returnSlotY = 0;
     this.flightPath = null;
     this.pathElapsedMs = 0;
+    this.hasStartedPath = false;
     this.canShoot = true;
     this.fireCooldownTimer = 0;
+    this.shotsRemainingInDive = 1;
+    this.isChallenging = false;
+    this.isGlitched = false;
+    this.glitchOffsetX = 0;
+    this.glitchOffsetY = 0;
+    this.glitchDisplacementX = 0;
+    this.glitchDisplacementY = 0;
+    this.glitchKinematicVx = 0;
+    this.glitchKinematicVy = 0;
+    this.isTeleporting = false;
+    this.teleportTimer = 0;
+    this.isKineticInverted = false;
+    this.kineticInversionTimer = 0;
+    this.canSpawnMirageClone = false;
+    this.isTractorDiving = false;
   }
 
   // ==========================================================================
@@ -250,9 +337,59 @@ export class Enemy implements Poolable {
    */
   public takeDamage(amount: number = 1): EnemyDamageResult {
     if (!this.active || this.state === EnemyState.EXPLODING || this.state === EnemyState.INACTIVE) {
-      return { destroyed: false, points: 0, wasDamaged: false };
+      return {
+        destroyed: false,
+        points: 0,
+        wasDamaged: false,
+        shieldAbsorbed: false,
+        remainingShield: this.shield,
+        remainingHealth: this.health,
+      };
     }
 
+    // 1. Kinetic Shield Absorption (Dreadnought Tier / Crisis Shield)
+    if (this.shield > 0) {
+      const absorbed = Math.min(this.shield, amount);
+      this.shield -= absorbed;
+      const overflow = amount - absorbed;
+      this.shieldFlashTimer = Enemy.SHIELD_FLASH_DURATION;
+      this.damageFlashTimer = Enemy.DAMAGE_FLASH_DURATION;
+
+      // Handle massive catastrophic overflow (e.g. ship collision amount >= 99)
+      if (overflow > 0 && amount >= 99) {
+        this.health -= overflow;
+        if (this.health <= 0) {
+          const awardedPoints = this.getScoreValue();
+          this.state = EnemyState.EXPLODING;
+          this.deathTimer = Enemy.EXPLOSION_DURATION;
+
+          if (this.escortBoss && this.escortBoss.active && this.escortBoss.escortCount > 0) {
+            this.escortBoss.escortCount = Math.max(0, this.escortBoss.escortCount - 1);
+          }
+
+          this.onExplode?.(this.x, this.y, this.type);
+          return {
+            destroyed: true,
+            points: awardedPoints,
+            wasDamaged: true,
+            shieldAbsorbed: true,
+            remainingShield: 0,
+            remainingHealth: 0,
+          };
+        }
+      }
+
+      return {
+        destroyed: false,
+        points: 0,
+        wasDamaged: true,
+        shieldAbsorbed: true,
+        remainingShield: this.shield,
+        remainingHealth: this.health,
+      };
+    }
+
+    // 2. Hull Health Depletion
     this.health -= amount;
     this.damageFlashTimer = Enemy.DAMAGE_FLASH_DURATION;
 
@@ -267,10 +404,24 @@ export class Enemy implements Poolable {
       }
 
       this.onExplode?.(this.x, this.y, this.type);
-      return { destroyed: true, points: awardedPoints, wasDamaged: true };
+      return {
+        destroyed: true,
+        points: awardedPoints,
+        wasDamaged: true,
+        shieldAbsorbed: false,
+        remainingShield: 0,
+        remainingHealth: 0,
+      };
     } else {
-      // Non-fatal hit (e.g. Boss Galaga Hit 1: 2 HP -> 1 HP)
-      return { destroyed: false, points: 0, wasDamaged: true };
+      // Non-fatal hit (e.g. Boss Galaga Hit 1: 2 HP -> 1 HP or Elite Zako/Goei 2 HP -> 1 HP)
+      return {
+        destroyed: false,
+        points: 0,
+        wasDamaged: true,
+        shieldAbsorbed: false,
+        remainingShield: 0,
+        remainingHealth: this.health,
+      };
     }
   }
 
@@ -283,9 +434,12 @@ export class Enemy implements Poolable {
       return;
     }
 
-    // 1. Update Damage Flash Timer
+    // 1. Update Damage & Shield Flash Timers
     if (this.damageFlashTimer > 0) {
       this.damageFlashTimer = Math.max(0, this.damageFlashTimer - dt);
+    }
+    if (this.shieldFlashTimer > 0) {
+      this.shieldFlashTimer = Math.max(0, this.shieldFlashTimer - dt);
     }
 
     // 2. Update Wing Flutter Animation
@@ -372,8 +526,44 @@ export class Enemy implements Poolable {
 
   private updatePathFlight(dt: number, nextState: EnemyState): void {
     if (!this.flightPath) {
-      this.state = nextState;
-      this.rotation = 0;
+      if (!this.hasStartedPath || this.y < 0 || this.x < 0 || this.x > 224) {
+        // Offscreen waiting for subwave launch; do not dock or transition yet
+        return;
+      }
+
+      if (nextState === EnemyState.IN_FORMATION) {
+        // Closed-loop terminal docking blend toward live slot
+        const dx = this.returnSlotX - this.x;
+        const dy = this.returnSlotY - this.y;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist <= 0.8) {
+          this.x = this.returnSlotX;
+          this.y = this.returnSlotY;
+          this.vx = 0;
+          this.vy = 0;
+          this.rotation = 0;
+          this.state = EnemyState.IN_FORMATION;
+          this.escortCount = 0;
+          this.escortBossId = null;
+          this.escortBoss = null;
+        } else {
+          // Smoothly glide remaining sub-pixel / multi-pixel delta at <= 2.5 px/frame
+          const dockingSpeed = Math.max(75, dist * 10);
+          const step = Math.min(2.5, Math.min(dist, dockingSpeed * dt));
+          this.x += (dx / dist) * step;
+          this.y += (dy / dist) * step;
+          const invDt = dt > 0.0001 ? 1 / dt : 60;
+          this.vx = (dx / dist) * (step * invDt);
+          this.vy = (dy / dist) * (step * invDt);
+
+          const angleDiff = ((-this.rotation + Math.PI) % (2 * Math.PI)) - Math.PI;
+          this.rotation += angleDiff * Math.min(1.0, 12.0 * dt);
+        }
+      } else {
+        this.state = nextState;
+        this.rotation = 0;
+      }
       return;
     }
 
@@ -389,12 +579,22 @@ export class Enemy implements Poolable {
     if (sample.isComplete) {
       this.flightPath = null;
       this.pathElapsedMs = 0;
-      this.state = nextState;
-      this.rotation = 0;
       if (nextState === EnemyState.IN_FORMATION) {
-        this.escortCount = 0;
-        this.escortBossId = null;
-        this.escortBoss = null;
+        // Do not snap immediately if distance to live slot > 0.8px; allow 1-3 docking frames
+        const distToSlot = Math.hypot(this.returnSlotX - this.x, this.returnSlotY - this.y);
+        if (distToSlot <= 0.8) {
+          this.x = this.returnSlotX;
+          this.y = this.returnSlotY;
+          this.state = EnemyState.IN_FORMATION;
+          this.rotation = 0;
+          this.escortCount = 0;
+          this.escortBossId = null;
+          this.escortBoss = null;
+        }
+        // If distToSlot > 0.8, flightPath is now null, next tick will execute smooth arrival docking above
+      } else {
+        this.state = nextState;
+        this.rotation = 0;
       }
     }
   }
@@ -406,21 +606,178 @@ export class Enemy implements Poolable {
       this.pathElapsedMs += dt * 1000;
       const sample = this.flightPath.evaluateTime(this.pathElapsedMs, Math.PI / 2);
 
-      this.x = sample.position.x;
-      this.y = sample.position.y;
-      this.vx = sample.velocity.x;
-      this.vy = sample.velocity.y;
-      this.rotation = sample.heading;
+      // Strict Immunity Invariant: Challenging stages and Epic Bosses are never afflicted
+      const isImmune = this.isChallenging || Boolean((this as any).isEpicBoss);
 
-      // Bottom screen wrap-around or path completion past bottom
-      if (sample.isComplete || this.y > 288 + Enemy.BASE_HEIGHT) {
+      if (!isImmune && this.isGlitched) {
+        // 1. Quantum Teleportation Update
+        if (this.isTeleporting) {
+          this.teleportTimer -= dt;
+          if (this.teleportTimer <= 0) {
+            this.isTeleporting = false;
+          }
+        }
+
+        // 2. Kinetic Inversion Update
+        if (this.isKineticInverted) {
+          this.kineticInversionTimer -= dt;
+          // Anti-gravity upward acceleration (-450 px/s^2)
+          this.glitchKinematicVy -= 450 * dt;
+          this.glitchDisplacementY += this.glitchKinematicVy * dt;
+
+          // Tangent-normal orthogonal lateral impulse
+          const tangentX = sample.velocity.x;
+          const tangentY = sample.velocity.y;
+          const tangentLen = Math.hypot(tangentX, tangentY);
+          if (tangentLen > 0.001) {
+            const normalX = -tangentY / tangentLen;
+            this.glitchDisplacementX += normalX * this.glitchKinematicVx * dt;
+          }
+
+          if (this.kineticInversionTimer <= 0) {
+            this.isKineticInverted = false;
+          }
+        } else {
+          // Smooth decay back to zero displacement (bounded step ensures displacement change <= 5 px/frame at 60Hz)
+          const decay = Math.exp(-2.0 * dt);
+          const maxStep = 300 * dt; // 5 px per frame at 60Hz
+          const targetX = this.glitchDisplacementX * decay;
+          const targetY = this.glitchDisplacementY * decay;
+
+          if (targetX > this.glitchDisplacementX) {
+            this.glitchDisplacementX = Math.min(targetX, this.glitchDisplacementX + maxStep);
+          } else {
+            this.glitchDisplacementX = Math.max(targetX, this.glitchDisplacementX - maxStep);
+          }
+
+          if (targetY > this.glitchDisplacementY) {
+            this.glitchDisplacementY = Math.min(targetY, this.glitchDisplacementY + maxStep);
+          } else {
+            this.glitchDisplacementY = Math.max(targetY, this.glitchDisplacementY - maxStep);
+          }
+
+          this.glitchKinematicVx *= decay;
+          this.glitchKinematicVy *= decay;
+        }
+
+        // Additive lateral & vertical displacement evaluation
+        const rawX = sample.position.x + this.glitchOffsetX + this.glitchDisplacementX;
+        const rawY = sample.position.y + this.glitchOffsetY + this.glitchDisplacementY;
+
+        this.x = Math.max(16, Math.min(208, rawX));
+        this.y = rawY;
+
+        const effectiveVx = sample.velocity.x + this.glitchKinematicVx;
+        const effectiveVy = sample.velocity.y + this.glitchKinematicVy;
+        this.vx = effectiveVx;
+        this.vy = effectiveVy;
+
+        if (Math.abs(effectiveVx) > 0.1 || Math.abs(effectiveVy) > 0.1) {
+          this.rotation = Math.atan2(effectiveVy, effectiveVx) + Math.PI / 2;
+        } else {
+          this.rotation = sample.heading;
+        }
+
+        // Ceiling wrap guard: If ascended past y < -20 in anti-gravity loop
+        if (this.y < -20 && this.glitchKinematicVy < 0) {
+          this.flightPath = null;
+          this.pathElapsedMs = 0;
+          this.glitchOffsetX = 0;
+          this.glitchOffsetY = 0;
+          this.glitchDisplacementX = 0;
+          this.glitchDisplacementY = 0;
+          this.glitchKinematicVx = 0;
+          this.glitchKinematicVy = 0;
+          this.isKineticInverted = false;
+          this.isTeleporting = false;
+          this.teleportTimer = 0;
+          this.y = -Enemy.BASE_HEIGHT;
+          this.state = EnemyState.RETURNING_TO_FORMATION;
+          this.vx = 0;
+          this.vy = this.diveSpeed * 0.8;
+          this.rotation = 0;
+          return;
+        }
+      } else {
+        this.x = sample.position.x;
+        this.y = sample.position.y;
+        this.vx = sample.velocity.x;
+        this.vy = sample.velocity.y;
+        this.rotation = sample.heading;
+      }
+
+      // ======================================================================
+      // DECOUPLING FIX (WARP-3 & WARP-4): Physical Bottom Wrap vs Path Completion
+      // ======================================================================
+
+      // Condition 1: Physical screen bottom wrap-around
+      // ONLY wrap to ceiling (-16) when the enemy has physically exited the bottom (Y > 288 + BASE_HEIGHT)
+      if (this.y > 288 + Enemy.BASE_HEIGHT) {
         this.flightPath = null;
         this.pathElapsedMs = 0;
+        this.glitchOffsetX = 0;
+        this.glitchOffsetY = 0;
+        this.glitchDisplacementX = 0;
+        this.glitchDisplacementY = 0;
+        this.glitchKinematicVx = 0;
+        this.glitchKinematicVy = 0;
+        this.isKineticInverted = false;
+        this.isTeleporting = false;
+        this.teleportTimer = 0;
+        this.isTractorDiving = false;
         this.y = -Enemy.BASE_HEIGHT;
         this.state = EnemyState.RETURNING_TO_FORMATION;
         this.vx = 0;
         this.vy = this.diveSpeed * 0.8;
         this.rotation = 0;
+        return;
+      }
+
+      // Condition 2: Parametric flight curve completed while still on-screen (Y <= 288 + BASE_HEIGHT)
+      if (sample.isComplete) {
+        // Sub-case A: Boss Galaga Tractor Beam Dive (WARP-3)
+        // Halts at mid-screen (haltY ≈ 100). Do NOT wrap to ceiling!
+        const isTractor =
+          this.isTractorDiving ||
+          (this.flightPath !== null && this.flightPath.id === 'TRACTOR_DIVE') ||
+          (this.type === EnemyType.BOSS && Math.abs(this.y - 100) <= 10);
+
+        if (isTractor) {
+          this.flightPath = null;
+          this.pathElapsedMs = 0;
+          this.isTractorDiving = true;
+          this.vx = 0;
+          this.vy = 0;
+          this.rotation = 0;
+          // Hold position at tractor altitude. FormationManager will detect
+          // (isTractorDiving && state === DIVING_SOLO && flightPath === null && y ∈ [95, 105])
+          // and transition to TRACTOR_BEAM_ACTIVE, clearing isTractorDiving and dispatching onTractorBeamRequest.
+          return;
+        }
+
+        // Sub-case B: Glitch kinetic inversion or mid-air path expiration (WARP-4)
+        // Decouple from ceiling wrap: transition smoothly to ballistic kinematic continuation downward!
+        this.flightPath = null;
+        this.pathElapsedMs = 0;
+        this.glitchOffsetX = 0;
+        this.glitchOffsetY = 0;
+        this.glitchDisplacementX = 0;
+        this.glitchDisplacementY = 0;
+        this.glitchKinematicVx = 0;
+        this.glitchKinematicVy = 0;
+        this.isKineticInverted = false;
+        this.isTeleporting = false;
+        this.teleportTimer = 0;
+
+        // Preserve current velocity direction but ensure positive downward velocity
+        this.vx = sample.velocity.x * 0.5;
+        this.vy = Math.max(this.diveSpeed * 0.8, sample.velocity.y);
+        if (Math.abs(this.vx) > 0.1 || Math.abs(this.vy) > 0.1) {
+          this.rotation = Math.atan2(this.vy, this.vx) + Math.PI / 2;
+        } else {
+          this.rotation = 0;
+        }
+        return;
       }
     } else {
       // Kinematic fallback
@@ -434,6 +791,9 @@ export class Enemy implements Poolable {
       // Check bottom-of-screen wrap-around (Y > 288 + 16)
       if (this.y > 288 + Enemy.BASE_HEIGHT) {
         this.y = -Enemy.BASE_HEIGHT;
+        this.isTeleporting = false;
+        this.teleportTimer = 0;
+        this.isTractorDiving = false;
         this.state = EnemyState.RETURNING_TO_FORMATION;
         this.vx = 0;
         this.vy = this.diveSpeed * 0.8;
@@ -454,24 +814,54 @@ export class Enemy implements Poolable {
 
     const dx = targetX - this.x;
     const dy = targetY - this.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
+    const dist = Math.hypot(dx, dy);
 
-    if (dist < 4 || (this.y >= targetY && Math.abs(dx) < 6)) {
+    // Terminal lock threshold: Sub-pixel lock into formation grid
+    if (dist <= 0.8) {
       this.x = targetX;
       this.y = targetY;
       this.vx = 0;
       this.vy = 0;
       this.rotation = 0;
+      this.isTeleporting = false;
+      this.teleportTimer = 0;
       this.state = EnemyState.IN_FORMATION;
       this.escortCount = 0;
       this.escortBossId = null;
       this.escortBoss = null;
-    } else {
-      const speed = this.diveSpeed * 0.9;
-      this.x += (dx / dist) * speed * dt;
-      this.y += (dy / dist) * speed * dt;
-      this.rotation = Math.atan2(dy, dx) + Math.PI / 2;
+      return;
     }
+
+    // Kinematic smoothing across cruise vs docking phases
+    const maxDisplacement = 2.5; // Strictly bounded: 2.5 px at 60Hz <= 3.0 px threshold
+    let step: number;
+
+    if (dist > 16.0) {
+      // Cruise phase: Linear approach toward live dynamic slot
+      const cruiseSpeed = this.diveSpeed * 0.9;
+      step = Math.min(dist, cruiseSpeed * dt);
+      this.rotation = Math.atan2(dy, dx) + Math.PI / 2;
+    } else {
+      // Docking phase (final 8-12 frames): Exponential blend with guaranteed minimum closing speed
+      // (v >= 75 px/s guarantees catching slot even at peak grid velocity of 66.1 px/s)
+      const dockingSpeed = Math.max(75, dist * 10);
+      step = Math.min(dist, dockingSpeed * dt);
+
+      // Smoothly slerp rotation toward 0 (facing UP in formation)
+      const angleDiff = ((-this.rotation + Math.PI) % (2 * Math.PI)) - Math.PI;
+      this.rotation += angleDiff * Math.min(1.0, 12.0 * dt);
+    }
+
+    // Strictly enforce displacement clamp
+    step = Math.min(step, maxDisplacement);
+
+    const nx = dx / dist;
+    const ny = dy / dist;
+    this.x += nx * step;
+    this.y += ny * step;
+    const invDt = dt > 0.0001 ? 1 / dt : 60;
+    this.vx = nx * (step * invDt);
+    this.vy = ny * (step * invDt);
   }
 
   // ==========================================================================
@@ -482,7 +872,11 @@ export class Enemy implements Poolable {
    * Attempts to discharge an aimed bullet toward the player ship position.
    */
   public attemptFire(playerX: number, playerY: number, bulletSpeed: number = 200): boolean {
-    if (!this.canShoot || !this.active || this.fireCooldownTimer > 0) {
+    if (!this.canShoot || !this.active || this.fireCooldownTimer > 0 || this.isChallenging) {
+      return false;
+    }
+
+    if (this.shotsRemainingInDive <= 0) {
       return false;
     }
 
@@ -491,7 +885,14 @@ export class Enemy implements Poolable {
       return false;
     }
 
-    this.fireCooldownTimer = 1.5 + Math.random() * 2.0; // 1.5s - 3.5s cooldown
+    this.shotsRemainingInDive--;
+    if (this.tier === 'DREADNOUGHT') {
+      this.fireCooldownTimer = 0.45;
+    } else if (this.tier === 'ELITE') {
+      this.fireCooldownTimer = 0.75;
+    } else {
+      this.fireCooldownTimer = 1.5 + Math.random() * 2.0; // 1.5s - 3.5s cooldown
+    }
 
     this.onFireBullet?.({
       originX: this.x,
@@ -519,6 +920,35 @@ export class Enemy implements Poolable {
   }
 
   // ==========================================================================
+  // M18 Anomalous Kinematics Triggers
+  // ==========================================================================
+
+  public triggerQuantumTeleport(lateralDelta?: number): boolean {
+    if (this.isChallenging || (this as any).isEpicBoss || !this.active) {
+      return false;
+    }
+    this.isTeleporting = true;
+    this.teleportTimer = 0.08;
+    const delta =
+      lateralDelta !== undefined
+        ? lateralDelta
+        : (Math.random() < 0.5 ? -1 : 1) * (35 + Math.random() * 35);
+    this.glitchOffsetX = Math.max(-60, Math.min(60, this.glitchOffsetX + delta));
+    return true;
+  }
+
+  public triggerKineticInversion(duration: number = 0.75, lateralImpulse: number = 180): boolean {
+    if (this.isChallenging || (this as any).isEpicBoss || !this.active) {
+      return false;
+    }
+    this.isKineticInverted = true;
+    this.kineticInversionTimer = duration;
+    this.glitchKinematicVy = -90; // Initial upward anti-gravity velocity
+    this.glitchKinematicVx = (Math.random() < 0.5 ? -1 : 1) * lateralImpulse;
+    return true;
+  }
+
+  // ==========================================================================
   // Canvas Rendering Pipeline
   // ==========================================================================
 
@@ -539,6 +969,12 @@ export class Enemy implements Poolable {
       return;
     }
 
+    if (this.isTeleporting) {
+      ctx.save();
+      ctx.globalAlpha = 0.6;
+      ctx.translate((Math.random() - 0.5) * 4, 0);
+    }
+
     SpriteRenderer.drawEnemy(
       ctx,
       this.type,
@@ -546,7 +982,17 @@ export class Enemy implements Poolable {
       this.y,
       this.animFrame,
       this.health,
-      this.rotation
+      this.rotation,
+      1.0,
+      this.tier,
+      this.shield,
+      this.damageFlashTimer,
+      this.shieldFlashTimer,
+      this.animTimer
     );
+
+    if (this.isTeleporting) {
+      ctx.restore();
+    }
   }
 }

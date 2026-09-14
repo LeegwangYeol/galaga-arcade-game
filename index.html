@@ -3,11 +3,47 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <meta name="description" content="Authentic 1981 Galaga Arcade Classic reconstructed with HTML5 Canvas 2D and Web Audio API" />
+  <title>Galaga — 1981 Arcade Classic (Ultimate Edition)</title>
+
+  <!-- Primary SEO Metadata -->
+  <meta name="title" content="Galaga — 1981 Arcade Classic (Ultimate Edition)" />
+  <meta name="description" content="Authentic 1981 Galaga arcade shooter reconstructed with pure Canvas 2D and Web Audio API. 50 rounds, 5 boss raids, 11 cosmic crises, power-ups, and special moves!" />
   <meta name="theme-color" content="#030306" />
+  <meta name="color-scheme" content="dark" />
+  <link rel="canonical" href="https://galaga-arcade-game.vercel.app/" />
+
+  <!-- OpenGraph / Facebook / Social Graph -->
+  <meta property="og:site_name" content="Galaga Arcade Game" />
+  <meta property="og:title" content="Galaga — 1981 Arcade Classic (Ultimate Edition)" />
+  <meta property="og:description" content="Authentic 1981 Galaga arcade shooter reconstructed with pure Canvas 2D and Web Audio API. 50 rounds, 5 boss raids, 11 cosmic crises, power-ups, and special moves!" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://galaga-arcade-game.vercel.app/" />
+  <meta property="og:image" content="https://galaga-arcade-game.vercel.app/og-image.png" />
+  <meta property="og:image:secure_url" content="https://galaga-arcade-game.vercel.app/og-image.png" />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="Galaga Arcade Game gameplay action featuring the player fighter, Boss Galaga, and starfield" />
+  <meta property="og:locale" content="en_US" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:url" content="https://galaga-arcade-game.vercel.app/" />
+  <meta name="twitter:title" content="Galaga — 1981 Arcade Classic (Ultimate Edition)" />
+  <meta name="twitter:description" content="Authentic 1981 Galaga arcade shooter reconstructed with pure Canvas 2D and Web Audio API. 50 rounds, 5 boss raids, 11 cosmic crises, power-ups, and special moves!" />
+  <meta name="twitter:image" content="https://galaga-arcade-game.vercel.app/og-image.png" />
+  <meta name="twitter:image:alt" content="Galaga Arcade Game gameplay action featuring the player fighter, Boss Galaga, and starfield" />
+
+  <!-- Mobile & PWA App Experience -->
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>Galaga — 1981 Arcade Classic</title>
+  <meta name="apple-mobile-web-app-title" content="Galaga" />
+
+  <!-- Favicon & Icons (Pure Procedural SVG Data URI & Fallback) -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='%23E70000' d='M7 0h2v2H7zM6 2h4v2H6zM5 4h6v2H5zM2 6h12v2H2zM1 8h14v2H1zM2 10h12v2H2zM3 12h10v2H3zM5 14h6v2H5z'/%3E%3Cpath fill='%23FFFFFF' d='M7 2h2v4H7zM6 6h4v4H6zM7 10h2v2H7z'/%3E%3Cpath fill='%2300FFFF' d='M5 8h2v2H5zM9 8h2v2H9z'/%3E%3Cpath fill='%23FFFF00' d='M7 0h2v1H7z'/%3E%3C/svg%3E" />
+  <link rel="alternate icon" href="/favicon.ico" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
   <!-- Google Fonts: Press Start 2P for authentic Namco 8-bit typography -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -22,6 +58,12 @@
       --accent-yellow: #ffff00;
       --accent-cyan: #00ffff;
       --font-arcade: 'Press Start 2P', monospace;
+
+      /* Safe-area insets with zero fallbacks */
+      --sat: env(safe-area-inset-top, 0px);
+      --sar: env(safe-area-inset-right, 0px);
+      --sab: env(safe-area-inset-bottom, 0px);
+      --sal: env(safe-area-inset-left, 0px);
     }
 
     * {
@@ -41,6 +83,7 @@
       font-family: var(--font-arcade);
       color: #ffffff;
       touch-action: none;
+      overscroll-behavior: none;
     }
 
     body {
@@ -64,6 +107,26 @@
       max-width: 100vw;
       max-height: 100vh;
       max-height: 100dvh;
+      padding: var(--sat) var(--sar) var(--sab) var(--sal);
+      box-sizing: border-box;
+      overscroll-behavior: none;
+    }
+
+    #app-container:fullscreen,
+    #app-container:-webkit-full-screen,
+    #app-container.fullscreen,
+    #app-container.simulated-fullscreen {
+      width: 100vw;
+      height: 100vh;
+      max-width: 100vw;
+      max-height: 100vh;
+      background: radial-gradient(circle at center, #0a0a18 0%, #030306 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: var(--sat) var(--sar) var(--sab) var(--sal);
+      box-sizing: border-box;
     }
 
     .canvas-wrapper {
@@ -79,7 +142,8 @@
       width: auto;
       height: 100%;
       max-width: 100%;
-      max-height: 100%;
+      max-height: calc(100% - var(--dash-height, 56px));
+      flex-shrink: 1;
     }
 
     #game-canvas, #gameCanvas {
@@ -121,10 +185,11 @@
     #touch-controls {
       display: none;
       position: absolute;
-      bottom: 12px;
+      bottom: max(12px, env(safe-area-inset-bottom, 12px));
       left: 0;
       width: 100%;
-      padding: 0 20px;
+      padding-left: max(20px, env(safe-area-inset-left, 20px));
+      padding-right: max(20px, env(safe-area-inset-right, 20px));
       box-sizing: border-box;
       justify-content: space-between;
       align-items: center;
@@ -147,6 +212,8 @@
       touch-action: none;
       box-shadow: 0 4px 8px rgba(0,0,0,0.5);
       transition: background-color 0.1s, transform 0.1s;
+      min-width: 48px;
+      min-height: 48px;
     }
 
     .touch-btn:active, .touch-btn.active {
@@ -162,18 +229,551 @@
     .dpad-btn {
       width: 60px;
       height: 60px;
+      min-width: 48px;
+      min-height: 48px;
     }
 
     .fire-btn {
       width: 72px;
       height: 72px;
+      min-width: 48px;
+      min-height: 48px;
       background: rgba(255, 42, 42, 0.3);
       border-color: rgba(255, 42, 42, 0.7);
       color: #ffcccc;
     }
 
-    /* Show touch controls on touch devices / narrow screens */
-    @media (hover: none) and (pointer: coarse), (max-width: 600px) {
+    .special-btn {
+      width: 54px;
+      height: 54px;
+      min-width: 48px;
+      min-height: 48px;
+      background: rgba(0, 255, 255, 0.3);
+      border-color: rgba(0, 255, 255, 0.7);
+      color: #ccffff;
+      font-size: 11px;
+    }
+
+    .fullscreen-btn {
+      width: 48px;
+      height: 48px;
+      min-width: 48px;
+      min-height: 48px;
+      background: rgba(100, 100, 255, 0.25);
+      border-color: rgba(100, 100, 255, 0.6);
+      color: #ccccff;
+      font-size: 14px;
+    }
+
+    .action-container {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    /* ==========================================================================
+       Cyber-Arcade Bottom Dashboard (Milestone M28)
+       ========================================================================== */
+    :root {
+      --dash-bg: #1a1a2e;
+      --dash-border: #2d2d54;
+      --dash-cyan: #00ffff;
+      --dash-yellow: #ffff00;
+      --dash-red: #ff2a2a;
+      --dash-green: #00ff66;
+      --dash-purple: #bb33ff;
+      --dash-font: 'Press Start 2P', monospace;
+      --dash-height: 56px;
+      --dash-height-compact: 44px;
+    }
+
+    .bottom-dashboard, .cyber-dashboard {
+      width: 100%;
+      max-width: 560px;
+      height: var(--dash-height);
+      background: linear-gradient(180deg, #22223e 0%, #121224 100%);
+      border: 1px solid var(--dash-border);
+      border-top: 2px solid var(--dash-cyan);
+      border-radius: 0 0 6px 6px;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.85), 0 0 10px rgba(0, 255, 255, 0.2);
+      display: grid;
+      grid-template-columns: 140px 1fr 140px;
+      align-items: center;
+      padding: 4px 10px;
+      box-sizing: border-box;
+      font-family: var(--dash-font);
+      color: #ffffff;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+      z-index: 15;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+
+    .bottom-dashboard.compact-mode, .cyber-dashboard.compact-mode {
+      height: var(--dash-height-compact);
+      grid-template-columns: 96px 1fr 82px;
+      padding: 2px 6px;
+    }
+
+    /* Zone 1: Left */
+    .zone-left, .dashboard-zone-left {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 3px;
+    }
+    .dash-score-rack {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .dash-score-entry {
+      display: flex;
+      justify-content: space-between;
+      font-size: 8px;
+      line-height: 9px;
+    }
+    .dash-lives-rack {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .dash-lives-icons, .dashboard-lives {
+      display: flex;
+      gap: 3px;
+      align-items: center;
+    }
+    .ship-icon, .ship-life-icon {
+      width: 12px;
+      height: 12px;
+      display: inline-block;
+      image-rendering: pixelated;
+    }
+
+    /* Zone 2: Center */
+    .zone-center, .dashboard-zone-center {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 0 8px;
+      gap: 4px;
+    }
+    .dash-chip-rack, .dashboard-powerups {
+      display: flex;
+      gap: 4px;
+      height: 16px;
+      align-items: center;
+      justify-content: center;
+    }
+    .dash-chip, .powerup-chip {
+      display: flex;
+      align-items: center;
+      background: rgba(10, 10, 25, 0.9);
+      border: 1px solid var(--dash-cyan);
+      border-radius: 3px;
+      padding: 1px 3px;
+      gap: 3px;
+      font-size: 7px;
+      line-height: 8px;
+      box-sizing: border-box;
+    }
+    .chip-meter {
+      width: 18px;
+      height: 4px;
+      background: #000000;
+      border-radius: 1px;
+      overflow: hidden;
+    }
+    .chip-bar, .powerup-progress-bar {
+      height: 100%;
+      background: var(--dash-cyan);
+      transition: width 0.1s linear;
+    }
+    .chip-rf .chip-bar { background: #ff7f00; }
+    .chip-sct .chip-bar { background: #00e700; }
+    .chip-spd .chip-bar { background: #5b93ff; }
+    .chip-cf .chip-bar { background: var(--dash-cyan); }
+    .chip-rfl .chip-bar { background: #5b93ff; }
+    .chip-emp .chip-bar { background: var(--dash-purple); }
+    .chip-phs .chip-bar { background: #ff007f; }
+    .chip-pls .chip-bar { background: var(--dash-yellow); }
+    .bar-fixed { width: 100% !important; }
+
+    .dash-special-rack, .dashboard-special-container {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .dash-special-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 7px;
+      line-height: 8px;
+    }
+    .special-track {
+      width: 100%;
+      height: 6px;
+      background: #0a0a18;
+      border: 1px solid #333366;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .special-fill, .special-charge-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #00ffff, #ffff00);
+      transition: width 0.08s linear;
+    }
+    .special-ready-cue, .special-ready .special-cue {
+      animation: pulseReadyText 0.7s infinite ease-in-out;
+    }
+    .special-ready-bar, .special-ready .special-fill, .special-ready .special-charge-bar {
+      animation: pulseReadyGlow 0.7s infinite ease-in-out;
+    }
+    @keyframes pulseReadyText {
+      0%, 100% { color: #ffff00; text-shadow: 0 0 8px #ffff00; }
+      50% { color: #ffffff; text-shadow: 0 0 2px #ffff00; }
+    }
+    @keyframes pulseReadyGlow {
+      0%, 100% { box-shadow: 0 0 8px #ffff00; background: #ffff00; }
+      50% { box-shadow: 0 0 2px #ffff00; background: #00ffff; }
+    }
+
+    /* Zone 3: Right */
+    .zone-right, .dashboard-zone-right {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .controls-legend {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      font-size: 6px;
+      color: #8888aa;
+    }
+    .controls-legend.hidden-compact {
+      display: none !important;
+    }
+    .k-cap {
+      color: var(--dash-cyan);
+    }
+    .dash-actions {
+      display: flex;
+      gap: 4px;
+    }
+    .dash-btn {
+      position: relative;
+      width: 32px;
+      height: 32px;
+      background: rgba(30, 30, 60, 0.6);
+      border: 1px solid #444477;
+      border-radius: 4px;
+      color: #ffffff;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s, border-color 0.15s, transform 0.1s;
+      touch-action: manipulation;
+    }
+    .dash-btn::before {
+      content: '';
+      position: absolute;
+      top: -8px;
+      bottom: -8px;
+      left: -8px;
+      right: -8px;
+      pointer-events: auto;
+    }
+    .dash-btn:hover {
+      background: rgba(50, 50, 90, 0.8);
+      border-color: var(--dash-cyan);
+    }
+    .dash-btn:active {
+      transform: translateY(1px) scale(0.95);
+      background: rgba(0, 255, 255, 0.3);
+    }
+
+    /* High Score Pulsating Flash */
+    .high-score-flash {
+      animation: pulseHighScore 0.6s infinite ease-in-out;
+    }
+    @keyframes pulseHighScore {
+      0%, 100% { color: #ffff00; text-shadow: 0 0 8px #ffff00; }
+      50% { color: #ff2a2a; text-shadow: 0 0 4px #ff2a2a; }
+    }
+
+    /* Utility Text Colors */
+    .text-cyan { color: var(--dash-cyan); }
+    .text-yellow { color: var(--dash-yellow); }
+    .text-white { color: #ffffff; }
+    .text-grey { color: #777799; }
+
+    /* Compact Mode Reflow (< 480px Viewports) */
+    @media (max-width: 480px) {
+      .bottom-dashboard, .cyber-dashboard {
+        height: var(--dash-height-compact);
+        grid-template-columns: 96px 1fr 82px;
+        padding: 2px 6px;
+      }
+      .canvas-wrapper {
+        max-height: calc(100% - var(--dash-height-compact, 44px));
+      }
+      .controls-legend {
+        display: none !important;
+      }
+      .dash-score-entry {
+        font-size: 7px;
+        line-height: 8px;
+      }
+      .ship-icon, .ship-life-icon {
+        width: 10px;
+        height: 10px;
+      }
+      .dash-chip, .powerup-chip {
+        font-size: 6px;
+        padding: 1px 2px;
+      }
+      .chip-meter {
+        width: 12px;
+        height: 3px;
+      }
+      .special-track {
+        height: 5px;
+      }
+      .dash-special-header {
+        font-size: 6px;
+      }
+      .dash-btn {
+        width: 24px;
+        height: 24px;
+        font-size: 11px;
+      }
+      .dash-btn::before {
+        top: -10px;
+        bottom: -10px;
+        left: -10px;
+        right: -10px;
+      }
+    }
+
+    /* Mobile Portrait Layout (< 600px and portrait) */
+    @media (max-width: 600px) and (orientation: portrait) {
+      #app-container {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        align-items: center;
+        height: 100%;
+        height: 100dvh;
+        padding: var(--sat) var(--sar) max(6px, var(--sab)) var(--sal);
+        box-sizing: border-box;
+      }
+
+      .canvas-wrapper {
+        flex: 1 1 auto;
+        min-height: 0;
+        max-height: calc(100dvh - var(--dash-height-compact, 44px) - 96px - var(--sat) - var(--sab));
+        width: auto;
+        aspect-ratio: 224 / 288;
+        margin: 0 auto;
+      }
+
+      .bottom-dashboard, .cyber-dashboard {
+        flex-shrink: 0;
+        width: 100%;
+        max-width: 500px;
+        margin: 2px 0;
+      }
+
+      #touch-controls {
+        display: flex;
+        position: relative;
+        bottom: auto;
+        left: auto;
+        width: 100%;
+        max-width: 500px;
+        padding: 4px 12px;
+        flex-shrink: 0;
+        justify-content: space-between;
+        align-items: center;
+        box-sizing: border-box;
+        z-index: 20;
+        pointer-events: none;
+      }
+
+      .dpad-container {
+        gap: 12px;
+        pointer-events: auto;
+      }
+
+      .action-container {
+        gap: 10px;
+        pointer-events: auto;
+      }
+
+      .dpad-btn {
+        width: 56px;
+        height: 56px;
+        min-width: 48px;
+        min-height: 48px;
+      }
+
+      .fullscreen-btn {
+        width: 48px;
+        height: 48px;
+        min-width: 48px;
+        min-height: 48px;
+      }
+
+      .special-btn {
+        width: 52px;
+        height: 52px;
+        min-width: 48px;
+        min-height: 48px;
+      }
+
+      .fire-btn {
+        width: 68px;
+        height: 68px;
+        min-width: 48px;
+        min-height: 48px;
+      }
+    }
+
+    /* Narrow Mobile Portrait (< 400px) */
+    @media (max-width: 400px) and (orientation: portrait) {
+      .dpad-container {
+        gap: 10px;
+      }
+      .dpad-btn {
+        width: 50px;
+        height: 50px;
+        min-width: 48px;
+        min-height: 48px;
+        font-size: 13px;
+      }
+      .action-container {
+        gap: 8px;
+      }
+      .fullscreen-btn {
+        width: 48px;
+        height: 48px;
+        min-width: 48px;
+        min-height: 48px;
+      }
+      .special-btn {
+        width: 48px;
+        height: 48px;
+        min-width: 48px;
+        min-height: 48px;
+        font-size: 10px;
+      }
+      .fire-btn {
+        width: 60px;
+        height: 60px;
+        min-width: 48px;
+        min-height: 48px;
+        font-size: 12px;
+      }
+    }
+
+    /* Mobile Landscape Layout (orientation: landscape and max-height: 600px) */
+    @media (orientation: landscape) and (max-height: 600px) {
+      #app-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        height: 100dvh;
+        position: relative;
+        padding: var(--sat) var(--sar) var(--sab) var(--sal);
+        box-sizing: border-box;
+      }
+
+      .canvas-wrapper {
+        height: calc(100% - var(--dash-height-compact, 44px));
+        max-height: calc(100% - var(--dash-height-compact, 44px));
+        aspect-ratio: 224 / 288;
+        width: auto;
+        flex-shrink: 1;
+      }
+
+      .bottom-dashboard, .cyber-dashboard {
+        height: var(--dash-height-compact, 44px);
+        max-width: min(360px, calc(100vw - 320px));
+        flex-shrink: 0;
+      }
+
+      #touch-controls {
+        display: flex;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        padding: var(--sat) max(16px, var(--sar)) max(8px, var(--sab)) max(16px, var(--sal));
+        justify-content: space-between;
+        align-items: center;
+        box-sizing: border-box;
+        pointer-events: none;
+        z-index: 20;
+      }
+
+      .dpad-container {
+        display: flex;
+        flex-direction: row;
+        gap: 14px;
+        pointer-events: auto;
+        align-items: center;
+      }
+
+      .action-container {
+        display: flex;
+        flex-direction: row;
+        gap: 12px;
+        pointer-events: auto;
+        align-items: center;
+      }
+
+      .dpad-btn {
+        width: 56px;
+        height: 56px;
+        min-width: 48px;
+        min-height: 48px;
+      }
+
+      .fullscreen-btn {
+        width: 48px;
+        height: 48px;
+        min-width: 48px;
+        min-height: 48px;
+      }
+
+      .special-btn {
+        width: 50px;
+        height: 50px;
+        min-width: 48px;
+        min-height: 48px;
+      }
+
+      .fire-btn {
+        width: 64px;
+        height: 64px;
+        min-width: 48px;
+        min-height: 48px;
+      }
+    }
+
+    /* Fallback touch controls display on touch-capable devices */
+    @media (hover: none) and (pointer: coarse) {
       #touch-controls {
         display: flex;
       }
@@ -187,13 +787,20 @@
       <div class="scanlines" aria-hidden="true"></div>
     </div>
 
+    <!-- Cyber-Arcade Bottom Dashboard (Milestone M28) -->
+    <div id="bottom-dashboard" class="bottom-dashboard" role="region" aria-label="Arcade Bottom Dashboard"></div>
+
     <!-- Virtual Touch Controls for Mobile Devices -->
     <div id="touch-controls" aria-hidden="true">
       <div class="dpad-container">
         <button id="btn-left" class="touch-btn dpad-btn" aria-label="Move Left">◀</button>
         <button id="btn-right" class="touch-btn dpad-btn" aria-label="Move Right">▶</button>
       </div>
-      <button id="btn-fire" class="touch-btn fire-btn" aria-label="Fire Missile">FIRE</button>
+      <div class="action-container">
+        <button id="btn-fullscreen" class="touch-btn fullscreen-btn" aria-label="Toggle Fullscreen" title="Toggle Fullscreen (F / F11)">⛶</button>
+        <button id="btn-special" class="touch-btn special-btn" aria-label="Special Move">SP</button>
+        <button id="btn-fire" class="touch-btn fire-btn" aria-label="Fire Missile">FIRE</button>
+      </div>
     </div>
   </div>
 

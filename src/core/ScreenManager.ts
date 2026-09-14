@@ -7,6 +7,7 @@
  */
 
 import type { ViewportTransform, VirtualResolution, Vector2D } from '../types';
+import { FullscreenManager } from '../ui/FullscreenManager';
 
 export type ResizeCallback = (transform: ViewportTransform) => void;
 
@@ -25,6 +26,7 @@ export class ScreenManager {
   private canvas: HTMLCanvasElement | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
   private container: HTMLElement | null = null;
+  private fullscreenManager: FullscreenManager | null = null;
 
   private virtualWidth: number = ScreenManager.DEFAULT_VIRTUAL_WIDTH;
   private virtualHeight: number = ScreenManager.DEFAULT_VIRTUAL_HEIGHT;
@@ -192,14 +194,45 @@ export class ScreenManager {
 
   /**
    * Computes and applies the viewport transformation immediately.
+   * Dynamically accounts for bottom HUD / dashboard height and safe area insets when mounted in DOM.
    */
   public updateScalingImmediate(): ViewportTransform {
     const windowWidth = typeof window !== 'undefined' ? window.innerWidth : this.virtualWidth;
     const windowHeight = typeof window !== 'undefined' ? window.innerHeight : this.virtualHeight;
 
+    let availableHeight = windowHeight;
+    const availableWidth = windowWidth;
+
+    if (typeof document !== 'undefined') {
+      const dashboardEl = document.getElementById('bottom-dashboard');
+      if (dashboardEl) {
+        const dashHeight =
+          dashboardEl.offsetHeight > 0
+            ? dashboardEl.offsetHeight
+            : windowWidth <= 480 || windowHeight <= 500
+              ? 44
+              : 56;
+
+        let safeAreaInsets = 0;
+        if (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
+          const appContainer = this.container || document.getElementById('app-container');
+          if (appContainer) {
+            const comp = window.getComputedStyle(appContainer);
+            const sat = parseFloat(comp.paddingTop) || 0;
+            const sab = parseFloat(comp.paddingBottom) || 0;
+            safeAreaInsets = sat + sab;
+          }
+        }
+
+        if (windowHeight > 0) {
+          availableHeight = Math.max(this.virtualHeight, windowHeight - dashHeight - safeAreaInsets);
+        }
+      }
+    }
+
     this.currentTransform = ScreenManager.calculateTransform(
-      windowWidth,
-      windowHeight,
+      availableWidth,
+      availableHeight,
       this.virtualWidth,
       this.virtualHeight
     );
@@ -310,26 +343,30 @@ export class ScreenManager {
   }
 
   /**
-   * Toggles browser full-screen mode for the game container or canvas.
+   * Returns or lazily creates the associated FullscreenManager instance.
+   * Ensures default target element resolves to '#app-container' so touch-controls
+   * and bottom HUD remain visible in fullscreen.
+   */
+  public getFullscreenManager(): FullscreenManager {
+    if (!this.fullscreenManager) {
+      const defaultTarget =
+        (typeof document !== 'undefined' && document.getElementById('app-container')) ||
+        this.container ||
+        this.canvas;
+      this.fullscreenManager = new FullscreenManager({
+        target: defaultTarget as HTMLElement | null,
+        screenManager: this,
+      });
+    }
+    return this.fullscreenManager;
+  }
+
+  /**
+   * Toggles browser full-screen mode for the game container or canvas,
+   * delegating to the unified FullscreenManager.
    */
   public async toggleFullscreen(): Promise<void> {
-    if (typeof document === 'undefined') return;
-    const target = this.container || this.canvas;
-    if (!target) return;
-
-    if (!document.fullscreenElement) {
-      try {
-        if (target.requestFullscreen) {
-          await target.requestFullscreen();
-        }
-      } catch (err) {
-        console.warn('[ScreenManager] Fullscreen request failed:', err);
-      }
-    } else {
-      if (document.exitFullscreen) {
-        await document.exitFullscreen();
-      }
-    }
+    await this.getFullscreenManager().toggleFullscreen();
   }
 
   /**
@@ -339,6 +376,10 @@ export class ScreenManager {
     if (typeof window !== 'undefined' && this.resizeListenerBound) {
       window.removeEventListener('resize', this.resizeListenerBound);
       this.resizeListenerBound = null;
+    }
+    if (this.fullscreenManager) {
+      this.fullscreenManager.destroy();
+      this.fullscreenManager = null;
     }
     this.resizeObservers.clear();
     this.canvas = null;

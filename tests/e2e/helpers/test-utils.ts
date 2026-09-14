@@ -24,9 +24,14 @@ export function createErrorCollector(page: Page) {
 
   page.on('console', (msg) => {
     if (msg.type() === 'error') {
+      const text = msg.text();
+      // Ignore benign Vite dev server HMR websocket errors caused by server shutdown / reconnect
+      if (text.includes('WebSocket connection to') || text.includes('net::ERR_CONNECTION_REFUSED')) {
+        return;
+      }
       errors.push({
         type: 'console.error',
-        message: msg.text(),
+        message: text,
         timestamp: Date.now(),
       });
     }

@@ -608,14 +608,15 @@ describe('Milestone 4: Game Master Coordinator & Formation Integration (`src/cor
     expect(game.getFormationManager().getLivingCount()).toBe(40);
 
     // Place an on-screen enemy in formation
-    const enemy = game.getFormationManager().getLivingEnemies()[0]!;
+    const enemy = game.getFormationManager().getLivingEnemies().find((e) => e.type === EnemyType.ZAKO) || game.getFormationManager().getLivingEnemies()[0]!;
     enemy.state = EnemyState.IN_FORMATION;
     enemy.flightPath = null;
-    enemy.x = 100;
-    enemy.y = 100;
+    const slotPos = game.getFormationManager().getSlotPosition(enemy.row, enemy.col, 0);
+    enemy.x = slotPos.x;
+    enemy.y = slotPos.y;
 
     // Fire player missile directly below the enemy
-    game.getBulletManager().firePlayerBullet(100, 106, false, 480);
+    game.getBulletManager().firePlayerBullet(enemy.x, enemy.y + 6, false, 480);
 
     const prevScore = game.score;
     // Update one frame to process collision

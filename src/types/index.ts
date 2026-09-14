@@ -136,6 +136,23 @@ export interface PlayerData {
 // ============================================================================
 
 /**
+ * 50-round difficulty tier classifications.
+ */
+export type StageTier = 'CLASSIC' | 'ELITE' | 'DREADNOUGHT';
+
+/**
+ * Result returned from applying damage to an enemy unit.
+ */
+export interface EnemyDamageResult {
+  destroyed: boolean;
+  points: number;
+  wasDamaged: boolean;
+  shieldAbsorbed?: boolean;
+  remainingShield?: number;
+  remainingHealth?: number;
+}
+
+/**
  * Categorical alien enemy types matching original arcade specifications.
  */
 export enum EnemyType {
@@ -225,7 +242,7 @@ export interface FlightPathData {
 /**
  * Identifies projectile ownership for collision filtering.
  */
-export type BulletOwner = 'PLAYER' | 'ENEMY';
+export type BulletOwner = 'PLAYER' | 'ENEMY' | 'DRONE';
 
 /**
  * Projectile type classifier.
@@ -355,7 +372,38 @@ export type AudioEventType =
   | 'CHALLENGING_STAGE_PERFECT'
   | 'DOCKING_CHIME'
   | 'GAME_OVER_FANFARE'
-  | 'EXTRA_LIFE';
+  | 'EXTRA_LIFE'
+  | 'HEAVY_LASER_BLAST'
+  | 'SPIRAL_RING_WHOOSH'
+  | 'DIMENSIONAL_TEAR_HUM'
+  | 'BLACK_HOLE_SUCTION_RUMBLE'
+  | 'NANITE_SPLIT_SHIMMER'
+  | 'GRAY_GOO_DISSOLVE_HISS'
+  | 'PHANTOM_DIVE_WARBLE'
+  | 'TELEKINETIC_STUN_SCREECH'
+  | 'ORBITAL_SHIELD_HUM'
+  | 'DARK_MATTER_BEAM_CHARGE'
+  | 'DARK_MATTER_BEAM_ROAR'
+  | 'ENRAGE_SIREN'
+  | 'CRISIS_KLAXON'
+  | 'DIGITAL_GLITCH'
+  | 'LIGHTNING_CRACKLE'
+  | 'DARK_MATTER_IGNITION'
+  | 'ESCORT_PLASMA_BOLT'
+  | 'SHIELD_REPAIR_CHIME'
+  | 'POINT_DEFENSE_PING'
+  | 'BOMBER_ENGINE_SWEEP'
+  | 'CLUSTER_BOMB_THUD'
+  | 'NOVA_LOCK_CHIME'
+  | 'NOVA_MISSILE_SWOOSH'
+  | 'CHRONO_FREEZE_DROP'
+  | 'CLOCK_FREEZE_TICK'
+  | 'WARP_RAM_SONIC_BOOM'
+  | 'CHRONO_FIELD_ACTIVATE'
+  | 'REFLECTION_DEFLECT'
+  | 'EMP_BULLET_ABSORB'
+  | 'PHASE_DRIVE_BLINK'
+  | 'PLASMA_BEAM_PULSE';
 
 /**
  * Audio playback options.
@@ -420,3 +468,67 @@ export interface IGameEngine {
   update(deltaTimeMs: number): void;
   render(ctx: CanvasRenderingContext2D): void;
 }
+
+// ============================================================================
+// 15. QA & Automated Bot Cheat Contracts
+// ============================================================================
+
+/**
+ * Global QA Cheat Controller contract for automated testing, Playwright bots, and debugging.
+ */
+export interface IGalagaCheatController {
+  skipToStage(stage: number): boolean;
+  triggerCrisis(crisisId?: string): boolean;
+  spawnBoss(bossType?: string | number): boolean;
+  triggerSpecialMove(specialId?: string): boolean;
+  setInvincible(invincible: boolean): void;
+  unlockDrone(droneType: string): boolean;
+  fillEnergy(amount?: number): void;
+  killAllEnemies(): number;
+  setScore(score: number): void;
+  addLives(count: number): number;
+  setDDAProficiency(proficiency: number | null): boolean;
+  getDDAMetrics(): any;
+  resetDDA(): void;
+  triggerGlitch(type?: string): boolean;
+  clearGlitch(): void;
+  spawnPowerUp(powerUpType: string, x?: number, y?: number): boolean;
+  applyPowerUp(powerUpType: string): boolean;
+  getGameState(): {
+    stage: number;
+    score: number;
+    lives: number;
+    state: string;
+    energy: number;
+    activeEnemies: number;
+    isInvincible: boolean;
+    dda?: {
+      skillIndex: number;
+      diveSpeedMultiplier: number;
+      bulletDensityMultiplier: number;
+      bossHealthMultiplier: number;
+      powerUpPityBonus: number;
+    };
+    glitch?: {
+      active: boolean;
+      state: string;
+      type: string | null;
+      isGlitchSector: boolean;
+      timer: number;
+    };
+    powerups?: {
+      activeBuffs: any;
+      activeItemCount: number;
+    };
+  };
+  getActiveBoss?(): any;
+  getActiveCrisis?(): any;
+  getGame?(): any;
+}
+
+declare global {
+  interface Window {
+    __GALAGA_CHEAT__?: IGalagaCheatController;
+  }
+}
+

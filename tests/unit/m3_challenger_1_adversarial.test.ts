@@ -254,8 +254,8 @@ describe('M3 Challenger 1: Adversarial Stress Test Suite', () => {
       // checkAABB([111, 113], [96, 111]) -> 111 < 111 is FALSE
       // checkAABB([111, 113], [113, 128]) -> 113 > 113 is FALSE
       const hit = player.hitTestAndDamage(centerBullet);
-      // Empirical verification of current codebase geometry
-      expect(hit).toBe(false); // 2px gap at center seam between left and right hulls
+      // Seamless dual fighter hitbox eliminates center seam 2px gap (M24 Remediation)
+      expect(hit).toBe(true);
     });
   });
 

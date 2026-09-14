@@ -48,7 +48,7 @@ export const BULLET_CONFIG = {
 
   // Pool Capacities
   POOL_INITIAL_SIZE: 32,
-  POOL_MAX_SIZE: 128,
+  POOL_MAX_SIZE: 256,
 } as const;
 
 // ============================================================================
@@ -60,7 +60,7 @@ export class Bullet implements BulletData, Poolable {
   public position: Vector2D = { x: 0, y: 0 };
   public velocity: Vector2D = { x: 0, y: 0 };
   public prevPosition: Vector2D = { x: 0, y: 0 };
-  public owner: BulletOwner = 'PLAYER';
+  public owner: BulletOwner | 'DRONE' = 'PLAYER';
   public type: BulletType = 'PLAYER_MISSILE';
   public active: boolean = false;
   public width: number = BULLET_CONFIG.PLAYER_WIDTH;
@@ -104,8 +104,8 @@ export class Bullet implements BulletData, Poolable {
     y: number,
     vx: number,
     vy: number,
-    owner: BulletOwner,
-    type: BulletType = owner === 'PLAYER' ? 'PLAYER_MISSILE' : 'ENEMY_RED_BULLET'
+    owner: BulletOwner | 'DRONE',
+    type: BulletType = (owner === 'PLAYER' || (owner as string) === 'DRONE') ? 'PLAYER_MISSILE' : 'ENEMY_RED_BULLET'
   ): this {
     this.position.x = x;
     this.position.y = y;
@@ -119,10 +119,10 @@ export class Bullet implements BulletData, Poolable {
     this.animTimer = 0;
     this.animFrame = 0;
 
-    if (owner === 'PLAYER') {
+    if (owner === 'PLAYER' || (owner as string) === 'DRONE') {
       this.width = BULLET_CONFIG.PLAYER_WIDTH;
       this.height = BULLET_CONFIG.PLAYER_HEIGHT;
-      this.angle = -Math.PI / 2;
+      this.angle = (vx === 0 && vy === 0) ? -Math.PI / 2 : Math.atan2(vy, vx);
     } else {
       this.width = BULLET_CONFIG.ENEMY_WIDTH;
       this.height = BULLET_CONFIG.ENEMY_HEIGHT;
@@ -210,8 +210,15 @@ export class Bullet implements BulletData, Poolable {
   public render(ctx: CanvasRenderingContext2D): void {
     if (!this.active) return;
 
-    if (this.owner === 'PLAYER') {
-      SpriteRenderer.draw(ctx, 'PLAYER_MISSILE', this.position.x, this.position.y);
+    if (this.owner === 'PLAYER' || (this.owner as string) === 'DRONE') {
+      const rot = this.angle + Math.PI / 2;
+      if (Math.abs(rot) > 0.001) {
+        SpriteRenderer.draw(ctx, 'PLAYER_MISSILE', this.position.x, this.position.y, {
+          rotation: rot,
+        });
+      } else {
+        SpriteRenderer.draw(ctx, 'PLAYER_MISSILE', this.position.x, this.position.y);
+      }
     } else {
       const spriteId = this.type === 'ENEMY_FAST_BEAM' ? 'ENEMY_FAST_BEAM' : 'ENEMY_BULLET';
       // Calculate rotation offset for enemy bullet orientation
@@ -237,6 +244,7 @@ export class BulletManager {
   private bulletPool: ObjectPool<Bullet>;
   private nextBulletId: number = 1;
   private activePlayerBulletCount: number = 0;
+  private activeDroneBulletCount: number = 0;
   private activeEnemyBulletCount: number = 0;
 
   private callbacks: BulletManagerOptions;
@@ -244,6 +252,12 @@ export class BulletManager {
   constructor(options: BulletManagerOptions = {}) {
     this.callbacks = options;
 
+    // ObjectPool Capacity Invariants:
+    // bulletPool is hard-bounded at maxSize: 256 (initialSize: 32, autoExpand: true
+    // up to the strict 256 cap, beyond which acquire() returns null), preserving
+    // compatibility with tests/unit/m8_final_adversarial.test.ts:146 (capacity <= 128)
+    // and tests/unit/adversarial_m15_memory_bounds.test.ts:310–322 (capacity === 256).
+    // At stage clear, bulletManager.clear() flushes all bullets to getActiveCount() === 0.
     this.bulletPool = new ObjectPool<Bullet>({
       factory: () => new Bullet(this.nextBulletId++),
       reset: (b: Bullet) => b.reset(),
@@ -283,8 +297,8 @@ export class BulletManager {
   /**
    * Determines if player is permitted to fire given current on-screen quota.
    */
-  public canPlayerFire(isDual: boolean): boolean {
-    const quota = this.getPlayerMaxQuota(isDual);
+  public canPlayerFire(isDual: boolean, maxQuota?: number): boolean {
+    const quota = maxQuota !== undefined ? maxQuota : this.getPlayerMaxQuota(isDual);
     return this.activePlayerBulletCount < quota;
   }
 
@@ -300,17 +314,107 @@ export class BulletManager {
     x: number,
     y: number,
     isDual: boolean = false,
-    speed: number = BULLET_CONFIG.PLAYER_SPEED
+    speed: number = BULLET_CONFIG.PLAYER_SPEED,
+    vx: number = 0,
+    vy?: number,
+    maxQuota?: number
   ): Bullet | null {
-    if (!this.canPlayerFire(isDual)) {
+    const quota = maxQuota !== undefined ? maxQuota : this.getPlayerMaxQuota(isDual);
+    if (this.activePlayerBulletCount >= quota) {
       return null;
     }
 
     const bullet = this.bulletPool.acquire();
     if (!bullet) return null;
 
-    bullet.init(x, y, 0, -Math.abs(speed), 'PLAYER', 'PLAYER_MISSILE');
+    const actualVy = vy !== undefined ? vy : -Math.abs(speed);
+    bullet.init(x, y, vx, actualVy, 'PLAYER', 'PLAYER_MISSILE');
     this.activePlayerBulletCount++;
+
+    if (this.callbacks.onPlayerFire) {
+      this.callbacks.onPlayerFire(bullet);
+    }
+
+    return bullet;
+  }
+
+  /**
+   * Spawns a player bullet with explicit velocity vectors and custom quota.
+   */
+  public firePlayerBulletWithVector(
+    x: number,
+    y: number,
+    vx: number,
+    vy: number,
+    maxQuota?: number
+  ): Bullet | null {
+    const quota = maxQuota !== undefined ? maxQuota : BULLET_CONFIG.PLAYER_SINGLE_MAX_BULLETS;
+    if (this.activePlayerBulletCount >= quota) {
+      return null;
+    }
+
+    const bullet = this.bulletPool.acquire();
+    if (!bullet) return null;
+
+    bullet.init(x, y, vx, vy, 'PLAYER', 'PLAYER_MISSILE');
+    this.activePlayerBulletCount++;
+
+    if (this.callbacks.onPlayerFire) {
+      this.callbacks.onPlayerFire(bullet);
+    }
+
+    return bullet;
+  }
+
+  /**
+   * Spawns an Escort Drone plasma bolt traveling upward without consuming player missile quota.
+   */
+  public fireDroneBullet(
+    x: number,
+    y: number,
+    vx: number = 0,
+    vy: number = -460,
+    maxQuota: number = 16
+  ): Bullet | null {
+    if (this.activeDroneBulletCount >= maxQuota) {
+      return null;
+    }
+
+    const bullet = this.bulletPool.acquire();
+    if (!bullet) return null;
+
+    bullet.init(x, y, vx, vy, 'DRONE' as any, 'PLAYER_MISSILE');
+    this.activeDroneBulletCount++;
+
+    return bullet;
+  }
+
+  /**
+   * Spawns a high-speed homing counter-missile deflected by the Kinetic Reflection Shield.
+   * Uses 'DRONE' owner tag so it damages enemies without counting against player primary fire quota.
+   */
+  public fireReflectionMissile(
+    originX: number,
+    originY: number,
+    targetX: number,
+    targetY: number,
+    speed: number = 600
+  ): Bullet | null {
+    const bullet = this.bulletPool.acquire();
+    if (!bullet) return null;
+
+    const dx = targetX - originX;
+    const dy = targetY - originY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    let vx = 0;
+    let vy = -speed;
+    if (dist > 0.001) {
+      vx = (dx / dist) * speed;
+      vy = (dy / dist) * speed;
+    }
+
+    bullet.init(originX, originY, vx, vy, 'DRONE' as any, 'PLAYER_MISSILE');
+    this.activeDroneBulletCount++;
 
     if (this.callbacks.onPlayerFire) {
       this.callbacks.onPlayerFire(bullet);
@@ -382,6 +486,32 @@ export class BulletManager {
     return bullet;
   }
 
+  /**
+   * Spawns an enemy bullet with explicit velocity vector (vx, vy).
+   * Used for boss spiral rings, radial shockwaves, and custom trajectories with zero GC.
+   */
+  public fireEnemyBulletWithVector(
+    originX: number,
+    originY: number,
+    vx: number,
+    vy: number,
+    type: BulletType = 'ENEMY_RED_BULLET',
+    _damage?: number,
+    _color?: string
+  ): Bullet | null {
+    const bullet = this.bulletPool.acquire();
+    if (!bullet) return null;
+
+    bullet.init(originX, originY, vx, vy, 'ENEMY', type);
+    this.activeEnemyBulletCount++;
+
+    if (this.callbacks.onEnemyFire) {
+      this.callbacks.onEnemyFire(bullet);
+    }
+
+    return bullet;
+  }
+
   // ==========================================================================
   // Release & Recycling
   // ==========================================================================
@@ -394,6 +524,8 @@ export class BulletManager {
 
     if (bullet.owner === 'PLAYER') {
       this.activePlayerBulletCount = Math.max(0, this.activePlayerBulletCount - 1);
+    } else if ((bullet.owner as string) === 'DRONE') {
+      this.activeDroneBulletCount = Math.max(0, this.activeDroneBulletCount - 1);
     } else {
       this.activeEnemyBulletCount = Math.max(0, this.activeEnemyBulletCount - 1);
     }
@@ -413,7 +545,26 @@ export class BulletManager {
   public clear(): void {
     this.bulletPool.clear();
     this.activePlayerBulletCount = 0;
+    this.activeDroneBulletCount = 0;
     this.activeEnemyBulletCount = 0;
+  }
+
+  /**
+   * Clears all active enemy bullets and optionally invokes an effect callback.
+   */
+  public clearEnemyBulletsWithEffect(
+    onBulletNeutralized?: (x: number, y: number) => void
+  ): number {
+    let clearedCount = 0;
+    this.bulletPool.forEachActiveSafe((bullet) => {
+      if (bullet.active && bullet.owner === 'ENEMY') {
+        onBulletNeutralized?.(bullet.position.x, bullet.position.y);
+        this.recycle(bullet);
+        clearedCount++;
+      }
+    });
+    this.activeEnemyBulletCount = 0;
+    return clearedCount;
   }
 
   // ==========================================================================
@@ -422,10 +573,30 @@ export class BulletManager {
 
   /**
    * Updates all active bullets, moving them and recycling off-screen ones safely.
+   * Supports Chrono Freeze (enemyDt = 0) and Chrono Field localized slowing.
    */
-  public update(dt: number): void {
+  public update(
+    dt: number,
+    enemyDt?: number,
+    chronoField?: { x: number; y: number; radiusSq?: number; slowFactor?: number }
+  ): void {
+    const actualEnemyDt = enemyDt !== undefined ? enemyDt : dt;
+    const rSq = chronoField?.radiusSq ?? 14400; // 120^2 px
+    const factor = chronoField?.slowFactor ?? 0.40; // 60% reduction
+
     this.bulletPool.forEachActiveSafe((bullet) => {
-      const inBounds = bullet.update(dt);
+      let effectiveDt = dt;
+      if (bullet.owner === 'ENEMY') {
+        effectiveDt = actualEnemyDt;
+        if (chronoField) {
+          const dx = bullet.position.x - chronoField.x;
+          const dy = bullet.position.y - chronoField.y;
+          if (dx * dx + dy * dy <= rSq) {
+            effectiveDt *= factor;
+          }
+        }
+      }
+      const inBounds = bullet.update(effectiveDt);
       if (!inBounds) {
         this.recycle(bullet);
       }
@@ -446,14 +617,23 @@ export class BulletManager {
   // ==========================================================================
 
   /**
-   * Iterates through active player bullets with safe-deletion support.
+   * Iterates through active player and ally drone bullets with safe-deletion support.
    */
   public forEachActivePlayerBullet(callback: (bullet: Bullet) => void): void {
     this.bulletPool.forEachActiveSafe((bullet) => {
-      if (bullet.active && bullet.owner === 'PLAYER') {
+      if (bullet.active && (bullet.owner === 'PLAYER' || (bullet.owner as string) === 'DRONE')) {
         callback(bullet);
       }
     });
+  }
+
+  /**
+   * Returns snapshot array of all active player and reflected/drone projectiles.
+   */
+  public getActivePlayerBullets(): Bullet[] {
+    const list: Bullet[] = [];
+    this.forEachActivePlayerBullet((bullet) => list.push(bullet));
+    return list;
   }
 
   /**

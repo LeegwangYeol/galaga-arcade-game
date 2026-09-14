@@ -23,6 +23,8 @@ export const STARFIELD_COLORS = {
   LAYER_2: ['#FFFFFF', '#5B93FF', '#00FFFF', '#FFFF00', '#FF007F'],
 } as const;
 
+export const STARFIELD_ICE_COLORS = ['#FFFFFF', '#C0F0FF', '#00FFFF', '#B0E0E6'] as const;
+
 export class Starfield {
   private stars: Star[] = [];
   private starSizes: Uint8Array;
@@ -35,8 +37,14 @@ export class Starfield {
   private targetSpeedMultiplier: number = 1.0;
   private currentState: StarfieldState = 'NORMAL';
 
+  public isChronoFrozen: boolean = false;
+
   public static readonly DEFAULT_STAR_COUNT = 100;
   public static readonly LERP_SPEED = 4.5; // Smooth transition speed (s^-1)
+
+  public setChronoFrozen(frozen: boolean): void {
+    this.isChronoFrozen = frozen;
+  }
 
   constructor(
     configOrWidth?: number | StarfieldConfig,
@@ -176,11 +184,14 @@ export class Starfield {
    * Delta time (dt) is in seconds.
    */
   public update(dt: number): void {
+    // If Chrono Freeze is active, freeze starfield kinematic updates and twinkling
+    const effectiveDt = this.isChronoFrozen ? 0 : dt;
+
     // Smooth speed lerp
     if (Math.abs(this.targetSpeedMultiplier - this.speedMultiplier) > 0.001) {
       this.speedMultiplier +=
         (this.targetSpeedMultiplier - this.speedMultiplier) *
-        Math.min(1.0, dt * Starfield.LERP_SPEED);
+        Math.min(1.0, effectiveDt * Starfield.LERP_SPEED);
     } else {
       this.speedMultiplier = this.targetSpeedMultiplier;
     }
@@ -192,10 +203,10 @@ export class Starfield {
       if (!star) continue;
 
       // Update vertical position
-      star.y += star.speed * currentSpeed * dt;
+      star.y += star.speed * currentSpeed * effectiveDt;
 
       // Update twinkling phase
-      star.twinklePhase += star.twinkleSpeed * dt;
+      star.twinklePhase += star.twinkleSpeed * effectiveDt;
 
       // Bottom wrap-around
       if (star.y >= this.virtualHeight) {
@@ -213,7 +224,7 @@ export class Starfield {
    * Renders all stars onto the canvas context with integer pixel snapping.
    */
   public render(ctx: CanvasRenderingContext2D): void {
-    const isWarping = this.speedMultiplier > 3.0;
+    const isWarping = this.speedMultiplier > 3.0 && !this.isChronoFrozen;
     const streakLength = isWarping
       ? Math.min(10, Math.floor(this.speedMultiplier * 1.5))
       : 0;
@@ -233,7 +244,9 @@ export class Starfield {
       );
 
       ctx.globalAlpha = alpha;
-      ctx.fillStyle = star.color;
+      ctx.fillStyle = this.isChronoFrozen
+        ? STARFIELD_ICE_COLORS[i % STARFIELD_ICE_COLORS.length]!
+        : star.color;
 
       const px = Math.floor(star.x);
       const py = Math.floor(star.y);

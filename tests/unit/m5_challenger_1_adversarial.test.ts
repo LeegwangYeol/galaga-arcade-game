@@ -144,28 +144,30 @@ describe('M5 Challenger 1: Adversarial Tractor Beam & Capture Stress Suite', () 
 
       it('evaluates AABB horizontal boundary precision at player altitude', () => {
         const baselineY = 250;
+        const boxY = baselineY;
         const boxH = 12;
         const boxW = 12;
-        const boxY = baselineY - boxH / 2; // 244 to 256, midY = 250
-        const halfWAtMid = beam.getHalfWidthAtY(250); // ~20.8085
+        // Per M24 TractorBeam corner precision fix: intersectsAABB evaluates at overlapBottomY (boxY + boxH)
+        const overlapBottomY = boxY + boxH;
+        const halfWAtBottom = beam.getHalfWidthAtY(overlapBottomY);
 
-        const beamLeftAtMid = bossX - halfWAtMid;
-        const beamRightAtMid = bossX + halfWAtMid;
+        const beamLeftAtBottom = bossX - halfWAtBottom;
+        const beamRightAtBottom = bossX + halfWAtBottom;
 
-        // Box touching left edge from outside (box.x + box.width = beamLeftAtMid)
-        const boxTouchingLeft = { x: beamLeftAtMid - boxW, y: boxY, width: boxW, height: boxH };
+        // Box touching left edge from outside (box.x + box.width = beamLeftAtBottom)
+        const boxTouchingLeft = { x: beamLeftAtBottom - boxW, y: boxY, width: boxW, height: boxH };
         expect(beam.intersectsAABB(boxTouchingLeft)).toBe(true);
 
         // Box detached by EPS on left
-        const boxDetachedLeft = { x: beamLeftAtMid - boxW - EPS, y: boxY, width: boxW, height: boxH };
+        const boxDetachedLeft = { x: beamLeftAtBottom - boxW - EPS, y: boxY, width: boxW, height: boxH };
         expect(beam.intersectsAABB(boxDetachedLeft)).toBe(false);
 
-        // Box touching right edge from outside (box.x = beamRightAtMid)
-        const boxTouchingRight = { x: beamRightAtMid, y: boxY, width: boxW, height: boxH };
+        // Box touching right edge from outside (box.x = beamRightAtBottom)
+        const boxTouchingRight = { x: beamRightAtBottom, y: boxY, width: boxW, height: boxH };
         expect(beam.intersectsAABB(boxTouchingRight)).toBe(true);
 
         // Box detached by EPS on right
-        const boxDetachedRight = { x: beamRightAtMid + EPS, y: boxY, width: boxW, height: boxH };
+        const boxDetachedRight = { x: beamRightAtBottom + EPS, y: boxY, width: boxW, height: boxH };
         expect(beam.intersectsAABB(boxDetachedRight)).toBe(false);
       });
 
@@ -382,10 +384,10 @@ describe('M5 Challenger 1: Adversarial Tractor Beam & Capture Stress Suite', () 
       expect(boss.state).toBe(EnemyState.EXPLODING);
       expect(game.tractorBeam.isActive()).toBe(false);
 
-      // Complete remaining 1.5s of capture animation
+      // Player is freed mid-ascent by cancelCapture() per M24
       player.update(1.5);
-      expect(player.state).toBe('respawning');
-      expect(player.lives).toBe(2);
+      expect(player.state).toBe('normal');
+      expect(player.lives).toBe(3);
 
       // Verify no orphan escort was attached to dead Boss
       expect(boss.hasCapturedFighter).toBe(false);

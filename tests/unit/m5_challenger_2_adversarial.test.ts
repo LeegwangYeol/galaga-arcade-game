@@ -728,7 +728,8 @@ describe('Milestone 5 Challenger 2: Rescue Docking & Turncoat Combat Stress Test
       expect(player.state).toBe('normal');
       expect(player.lives).toBe(3); // NO LIFE LOSS for partial hull destruction!
 
-      // 2. Subsequent enemy bullet hits surviving single ship hull
+      // 2. Subsequent enemy bullet hits surviving single ship hull after invulnerability expires (0.5s M24 buffer)
+      player.update(0.55);
       const centerBullet = { x: player.x - 2, y: 246, width: 4, height: 4 };
       const hitCenter = player.hitTestAndDamage(centerBullet);
       expect(hitCenter).toBe(true);

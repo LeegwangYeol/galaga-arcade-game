@@ -8,6 +8,7 @@
 
 import type { InputState } from '../types';
 import type { ScreenManager } from '../core/ScreenManager';
+import { AudioContextManager } from '../audio/AudioContextManager';
 
 export class InputHandler {
   private canvas: HTMLCanvasElement;
@@ -33,6 +34,13 @@ export class InputHandler {
   private fireTriggered: boolean = false;
   private pauseTriggered: boolean = false;
   private restartTriggered: boolean = false;
+  private specialTriggered: boolean = false;
+  private cycleSpecialTriggered: boolean = false;
+
+  // Double-tap and Phase Warp tracking (Milestone M19)
+  private lastLeftKeyDownTime: number = 0;
+  private lastRightKeyDownTime: number = 0;
+  private phaseWarpTriggered: number | null = null;
 
   // Set of actively depressed key codes for rollover handling
   private activeKeys = new Set<string>();
@@ -53,12 +61,24 @@ export class InputHandler {
     'KeyW',
     'KeyS',
     'KeyZ',
+    'KeyX',
+    'KeyC',
+    'KeyV',
+    'KeyB',
+    'KeyN',
     'KeyK',
     'KeyJ',
     'KeyP',
     'Escape',
     'Enter',
     'KeyR',
+    'x',
+    'X',
+    'c',
+    'C',
+    'Shift',
+    'ShiftLeft',
+    'ShiftRight',
   ]);
 
   // Bound listener references for deterministic cleanup
@@ -79,6 +99,7 @@ export class InputHandler {
   private domBtnLeft: HTMLElement | null = null;
   private domBtnRight: HTMLElement | null = null;
   private domBtnFire: HTMLElement | null = null;
+  private domBtnSpecial: HTMLElement | null = null;
 
   // DOM touch button bound handlers
   private boundDomLeftDown: (e: Event) => void;
@@ -87,6 +108,8 @@ export class InputHandler {
   private boundDomRightUp: (e: Event) => void;
   private boundDomFireDown: (e: Event) => void;
   private boundDomFireUp: (e: Event) => void;
+  private boundDomSpecialDown: (e: Event) => void;
+  private boundDomSpecialUp: (e: Event) => void;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -119,6 +142,12 @@ export class InputHandler {
       this.state.touchLeft = true;
       this.state.moveLeft = true;
       this.domBtnLeft?.classList.add('active');
+
+      const now = performance.now();
+      if (now - this.lastLeftKeyDownTime <= 250) {
+        this.phaseWarpTriggered = -1;
+      }
+      this.lastLeftKeyDownTime = now;
     };
     this.boundDomLeftUp = (e: Event) => {
       if (e.cancelable) e.preventDefault();
@@ -136,6 +165,12 @@ export class InputHandler {
       this.state.touchRight = true;
       this.state.moveRight = true;
       this.domBtnRight?.classList.add('active');
+
+      const now = performance.now();
+      if (now - this.lastRightKeyDownTime <= 250) {
+        this.phaseWarpTriggered = 1;
+      }
+      this.lastRightKeyDownTime = now;
     };
     this.boundDomRightUp = (e: Event) => {
       if (e.cancelable) e.preventDefault();
@@ -165,6 +200,18 @@ export class InputHandler {
       this.domBtnFire?.classList.remove('active');
     };
 
+    this.boundDomSpecialDown = (e: Event) => {
+      if (e.cancelable) e.preventDefault();
+      this.notifyUserGesture();
+      this.triggerHaptic(20);
+      this.specialTriggered = true;
+      this.domBtnSpecial?.classList.add('active');
+    };
+    this.boundDomSpecialUp = (e: Event) => {
+      if (e.cancelable) e.preventDefault();
+      this.domBtnSpecial?.classList.remove('active');
+    };
+
     this.attachEventListeners();
     this.attachDomTouchControls();
   }
@@ -177,7 +224,32 @@ export class InputHandler {
    * Returns a readonly snapshot of current continuous input states.
    */
   public getState(): Readonly<InputState> {
+    this.pollGamepad();
     return this.state;
+  }
+
+  private pollGamepad(): void {
+    if (typeof navigator !== 'undefined' && typeof navigator.getGamepads === 'function') {
+      try {
+        const gamepads = navigator.getGamepads();
+        if (gamepads) {
+          for (let i = 0; i < gamepads.length; i++) {
+            const gp = gamepads[i];
+            if (!gp) continue;
+            // Buttons 2 (X / Square) or 1 (B / Circle)
+            if (gp.buttons[2]?.pressed || gp.buttons[1]?.pressed) {
+              this.specialTriggered = true;
+            }
+            // Bumpers 4 (L1) or 5 (R1)
+            if (gp.buttons[4]?.pressed || gp.buttons[5]?.pressed) {
+              this.cycleSpecialTriggered = true;
+            }
+          }
+        }
+      } catch {
+        // Ignored if gamepads unavailable
+      }
+    }
   }
 
   /**
@@ -185,7 +257,9 @@ export class InputHandler {
    * Ensures actions such as firing a single missile or toggling pause
    * execute exactly once per user trigger.
    */
-  public consumeAction(action: 'fire' | 'pause' | 'restart'): boolean {
+  public consumeAction(
+    action: 'fire' | 'pause' | 'restart' | 'special' | 'specialMove' | 'cycleSpecial' | 'phaseWarp' | 'phaseDrive' | 'shift'
+  ): boolean {
     switch (action) {
       case 'fire': {
         const val = this.fireTriggered;
@@ -202,9 +276,36 @@ export class InputHandler {
         this.restartTriggered = false;
         return val;
       }
+      case 'special':
+      case 'specialMove': {
+        const val = this.specialTriggered;
+        this.specialTriggered = false;
+        return val;
+      }
+      case 'cycleSpecial': {
+        const val = this.cycleSpecialTriggered;
+        this.cycleSpecialTriggered = false;
+        return val;
+      }
+      case 'phaseWarp':
+      case 'phaseDrive':
+      case 'shift': {
+        const val = this.phaseWarpTriggered !== null;
+        this.phaseWarpTriggered = null;
+        return val;
+      }
       default:
         return false;
     }
+  }
+
+  /**
+   * Consumes single-pulse Phase Warp trigger (-1 for left, +1 for right, null if inactive)
+   */
+  public consumePhaseWarp(): number | null {
+    const val = this.phaseWarpTriggered;
+    this.phaseWarpTriggered = null;
+    return val;
   }
 
   /**
@@ -234,6 +335,11 @@ export class InputHandler {
     this.fireTriggered = false;
     this.pauseTriggered = false;
     this.restartTriggered = false;
+    this.specialTriggered = false;
+    this.cycleSpecialTriggered = false;
+    this.phaseWarpTriggered = null;
+    this.lastLeftKeyDownTime = 0;
+    this.lastRightKeyDownTime = 0;
 
     this.domBtnLeft?.classList.remove('active');
     this.domBtnRight?.classList.remove('active');
@@ -332,6 +438,16 @@ export class InputHandler {
       this.domBtnFire.addEventListener('mouseup', this.boundDomFireUp);
       this.domBtnFire.addEventListener('mouseleave', this.boundDomFireUp);
     }
+
+    this.domBtnSpecial = document.getElementById('btn-special');
+    if (this.domBtnSpecial) {
+      this.domBtnSpecial.addEventListener('touchstart', this.boundDomSpecialDown, { passive: false });
+      this.domBtnSpecial.addEventListener('touchend', this.boundDomSpecialUp, { passive: false });
+      this.domBtnSpecial.addEventListener('touchcancel', this.boundDomSpecialUp, { passive: false });
+      this.domBtnSpecial.addEventListener('mousedown', this.boundDomSpecialDown);
+      this.domBtnSpecial.addEventListener('mouseup', this.boundDomSpecialUp);
+      this.domBtnSpecial.addEventListener('mouseleave', this.boundDomSpecialUp);
+    }
   }
 
   private detachDomTouchControls(): void {
@@ -361,13 +477,22 @@ export class InputHandler {
       this.domBtnFire.removeEventListener('mouseup', this.boundDomFireUp);
       this.domBtnFire.removeEventListener('mouseleave', this.boundDomFireUp);
     }
+
+    if (this.domBtnSpecial) {
+      this.domBtnSpecial.removeEventListener('touchstart', this.boundDomSpecialDown);
+      this.domBtnSpecial.removeEventListener('touchend', this.boundDomSpecialUp);
+      this.domBtnSpecial.removeEventListener('touchcancel', this.boundDomSpecialUp);
+      this.domBtnSpecial.removeEventListener('mousedown', this.boundDomSpecialDown);
+      this.domBtnSpecial.removeEventListener('mouseup', this.boundDomSpecialUp);
+      this.domBtnSpecial.removeEventListener('mouseleave', this.boundDomSpecialUp);
+    }
   }
 
   // ==========================================================================
   // Keyboard Event Handlers
   // ==========================================================================
 
-  private handleKeyDown(e: KeyboardEvent): void {
+  public handleKeyDown(e: KeyboardEvent): void {
     if (
       InputHandler.PREVENT_DEFAULT_KEYS.has(e.code) ||
       InputHandler.PREVENT_DEFAULT_KEYS.has(e.key)
@@ -388,12 +513,34 @@ export class InputHandler {
     if (this.isLeftKey(e.code, e.key)) {
       this.state.moveLeft = true;
       this.state.pointerActive = false;
+      if (!isRepeat) {
+        const now = performance.now();
+        if (now - this.lastLeftKeyDownTime <= 250) {
+          this.phaseWarpTriggered = -1;
+        }
+        this.lastLeftKeyDownTime = now;
+      }
     }
 
     // Movement: Right
     if (this.isRightKey(e.code, e.key)) {
       this.state.moveRight = true;
       this.state.pointerActive = false;
+      if (!isRepeat) {
+        const now = performance.now();
+        if (now - this.lastRightKeyDownTime <= 250) {
+          this.phaseWarpTriggered = 1;
+        }
+        this.lastRightKeyDownTime = now;
+      }
+    }
+
+    // Shift Key: Phase Warp (Milestone M19)
+    if (this.isShiftKey(e.code, e.key)) {
+      if (!isRepeat) {
+        const dir = this.state.moveLeft ? -1 : (this.state.moveRight ? 1 : 1);
+        this.phaseWarpTriggered = dir;
+      }
     }
 
     // Fire
@@ -417,6 +564,20 @@ export class InputHandler {
       this.state.restart = true;
       if (!isRepeat) {
         this.restartTriggered = true;
+      }
+    }
+
+    // Special Move (KeyX / x / X)
+    if (this.isSpecialKey(e.code, e.key)) {
+      if (!isRepeat) {
+        this.specialTriggered = true;
+      }
+    }
+
+    // Cycle Special Move (KeyC / c / C)
+    if (this.isCycleSpecialKey(e.code, e.key)) {
+      if (!isRepeat) {
+        this.cycleSpecialTriggered = true;
       }
     }
   }
@@ -462,6 +623,9 @@ export class InputHandler {
   // ==========================================================================
 
   private handlePointerDown(e: PointerEvent): void {
+    if (e.pointerType === 'touch') {
+      return;
+    }
     this.notifyUserGesture();
     this.triggerHaptic(12);
     this.state.fire = true;
@@ -471,12 +635,18 @@ export class InputHandler {
   }
 
   private handlePointerMove(e: PointerEvent): void {
+    if (e.pointerType === 'touch') {
+      return;
+    }
     if (e.buttons > 0 || e.pointerType === 'mouse' || this.state.pointerActive) {
       this.updatePointerCoordinates(e.clientX, e.clientY);
     }
   }
 
-  private handlePointerUp(_e: PointerEvent): void {
+  private handlePointerUp(e: PointerEvent): void {
+    if (e.pointerType === 'touch') {
+      return;
+    }
     if (!this.isAnyFireKeyPressed() && !this.state.touchFire) {
       this.state.fire = false;
     }
@@ -491,7 +661,7 @@ export class InputHandler {
 
   private updatePointerCoordinates(clientX: number, clientY: number): void {
     if (this.screenManager) {
-      const virtual = this.screenManager.clientToVirtual(clientX, clientY);
+      const virtual = this.screenManager.clientToVirtual(clientX, clientY, true);
       if (virtual) {
         this.state.pointerX = Math.max(8, Math.min(216, virtual.x));
         this.state.pointerActive = true;
@@ -633,8 +803,13 @@ export class InputHandler {
   }
 
   private handleVisibilityChange(): void {
-    if (typeof document !== 'undefined' && document.hidden) {
-      this.reset();
+    if (typeof document !== 'undefined') {
+      if (document.hidden) {
+        this.reset();
+        AudioContextManager.suspend();
+      } else {
+        AudioContextManager.resume();
+      }
     }
   }
 
@@ -713,6 +888,29 @@ export class InputHandler {
       key === 'r' ||
       key === 'R'
     );
+  }
+
+  public isSpecialKey(code: string, key: string): boolean {
+    return (
+      code === 'KeyX' ||
+      code === 'KeyV' ||
+      key === 'x' ||
+      key === 'X' ||
+      key === 'v' ||
+      key === 'V'
+    );
+  }
+
+  public isCycleSpecialKey(code: string, key: string): boolean {
+    return (
+      code === 'KeyC' ||
+      key === 'c' ||
+      key === 'C'
+    );
+  }
+
+  public isShiftKey(code: string, key: string): boolean {
+    return code === 'ShiftLeft' || code === 'ShiftRight' || key === 'Shift';
   }
 
   private isAnyLeftKeyPressed(): boolean {

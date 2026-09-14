@@ -1,0 +1,35 @@
+--- tests/unit/boss_stage40_psionic.test.ts
++++ tests/unit/boss_stage40_psionic.test.ts
+@@ -71,6 +71,17 @@
+   it('charges and unleashes telekinetic stun wave in Phase 2, disrupting player thrusters', () => {
++    game.setState('PLAYING');
++
++    // 1. Verify baseline movement speed without stun (260 px/s => ~4.33px per frame)
++    const baselinePrevX = game.player.x;
++    (game.inputHandler.getState() as { moveRight: boolean }).moveRight = true;
++    game.update(1 / 60);
++    const baselineMoved = game.player.x - baselinePrevX;
++    expect(baselineMoved).toBeCloseTo(4.3333, 2);
++
++    // Reset input for stun wave sequence
++    (game.inputHandler.getState() as { moveRight: boolean }).moveRight = false;
++
+     harbinger.update(2.5, 112, 250);
+     harbinger.takeDamage(90);
+     harbinger.update(1.9, 112, 250); // Enter Phase 2
+@@ -88,10 +99,13 @@
+     expect(game.bossManager.playerStunTimer).toBeGreaterThan(0);
+ 
+     // Verify thruster speed disruption in Game.ts:
+-    // With stun active, player horizontal speed is cut by 75%
++    // With stun active, player horizontal speed is cut by 75% (25% baseline velocity)
+     const prevX = game.player.x;
+     (game.inputHandler.getState() as { moveRight: boolean }).moveRight = true;
+     game.update(1 / 60);
+     const moved = game.player.x - prevX;
+     // Normal speed is 260 px/s => per frame ~4.33px. Cut to 25% => ~1.08px.
++    expect(moved).toBeGreaterThan(0.5);
++    expect(moved).toBeCloseTo(1.0833, 2);
++    expect(moved).toBeCloseTo(baselineMoved * 0.25, 2);
+     expect(moved).toBeLessThan(2.0);
+   });

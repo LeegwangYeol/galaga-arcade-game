@@ -584,6 +584,19 @@ export class MusicJingles {
         } catch { /* ignored */ }
       }
 
+      for (const osc of activeOscillators) {
+        try {
+          osc.disconnect();
+        } catch { /* ignored */ }
+      }
+      for (const gain of activeGainNodes) {
+        try {
+          gain.disconnect();
+        } catch { /* ignored */ }
+      }
+      activeOscillators.length = 0;
+      activeGainNodes.length = 0;
+
       resolveFinished();
     };
 

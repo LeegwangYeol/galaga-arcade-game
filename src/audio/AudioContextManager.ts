@@ -86,6 +86,14 @@ export class AudioContextManager {
     return AudioContextManager.getInstance().unlock();
   }
 
+  public static suspend(): Promise<void> {
+    return AudioContextManager.getInstance().suspend();
+  }
+
+  public static resume(): Promise<void> {
+    return AudioContextManager.getInstance().resume();
+  }
+
   public static setMuted(muted: boolean): void {
     AudioContextManager.getInstance().setMuted(muted);
   }
@@ -194,6 +202,32 @@ export class AudioContextManager {
     }
 
     return this.isUnlocked;
+  }
+
+  /**
+   * Suspends the audio context to conserve power and CPU when paused or backgrounded.
+   */
+  public async suspend(): Promise<void> {
+    if (this.ctx && this.ctx.state === 'running') {
+      try {
+        await this.ctx.suspend();
+      } catch {
+        // Handled silently
+      }
+    }
+  }
+
+  /**
+   * Resumes the suspended audio context.
+   */
+  public async resume(): Promise<void> {
+    if (this.ctx && this.ctx.state === 'suspended') {
+      try {
+        await this.ctx.resume();
+      } catch {
+        // Handled silently
+      }
+    }
   }
 
   /**

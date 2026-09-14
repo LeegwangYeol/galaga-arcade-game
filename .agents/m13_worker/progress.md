@@ -1,0 +1,50 @@
+# Progress — Milestone 13 Implementation
+
+- **Agent**: `m13_worker`
+- **Last visited**: 2026-09-04T19:24:30+09:00
+- **Status**: Implementation & Verification Complete — 100% Tests Passing (908/908), Build Clean.
+
+## Milestones & Checklist
+- [x] Read and verify all requirements and explorer analyses.
+- [x] Create DISPATCH.md, BRIEFING.md, progress.md.
+- [x] Investigate existing codebase implementations:
+  - [x] `src/entities/Player.ts`
+  - [x] `src/entities/Bullet.ts`
+  - [x] `src/core/powerups/PowerUpManager.ts`
+  - [x] `src/renderer/SpriteRenderer.ts`
+  - [x] `src/ui/HUD.ts`
+  - [x] `src/ui/InputHandler.ts`
+  - [x] `src/core/Game.ts`
+- [x] Implement Allies Support System (`src/core/allies/`):
+  - [x] `types.ts`
+  - [x] `pools/ClusterBomb.ts`
+  - [x] `pools/BombExplosion.ts`
+  - [x] `BaseDrone.ts`
+  - [x] `drones/EscortDrone.ts`
+  - [x] `drones/AegisDrone.ts`
+  - [x] `drones/BomberDrone.ts`
+  - [x] `AlliesManager.ts`
+  - [x] `index.ts`
+- [x] Implement Special Moves System (`src/core/special/` & `src/core/specials/`):
+  - [x] `types.ts`
+  - [x] `pools/NovaMissile.ts`
+  - [x] `pools/EnergySpark.ts`
+  - [x] `SpecialMovesManager.ts`
+  - [x] `index.ts`
+- [x] Integrate into:
+  - [x] `src/types/index.ts` (added 'DRONE' to `BulletOwner` union)
+  - [x] `src/entities/Bullet.ts` (drone bullet owner / quota isolation via activeDroneBulletCount)
+  - [x] `src/renderer/SpriteRenderer.ts` (procedural pixel art matrices for drones, bombs, sparks, beams, frost)
+  - [x] `src/ui/HUD.ts` (energy gauge & 'SP READY' banner at center-bottom)
+  - [x] `src/ui/InputHandler.ts` (`KeyX`, `KeyC`, Gamepad buttons 1 & 2, `#btn-special`)
+  - [x] `index.html` (`#btn-special` virtual touch button styling & DOM element)
+  - [x] `src/core/Game.ts` (subsystem lifecycle, enemyDt split during Chrono Freeze, collision hooks, energy spark drops)
+- [x] Author test suites in `tests/unit/`:
+  - [x] `tests/unit/m13_allies_drones.test.ts` (17 tests passing)
+  - [x] `tests/unit/m13_special_moves.test.ts` (14 tests passing)
+  - [x] `tests/unit/m13_zerogc_stress.test.ts` (5 tests passing, 10k ticks)
+  - [x] `tests/unit/m13_regression_guard.test.ts` (9 tests passing)
+- [x] Run `npm test` and `npm run build` to verify 100% pass and 0 errors:
+  - `npm test`: 50 test files passed (50/50), 908 tests passed (908/908).
+  - `npm run build`: Vite build completed in 306ms without any TypeScript or bundling errors.
+- [x] Write `handoff.md` and report completion to parent orchestrator.

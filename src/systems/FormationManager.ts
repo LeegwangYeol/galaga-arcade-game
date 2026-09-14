@@ -13,12 +13,19 @@ import { Enemy, type EnemyBulletRequest } from '../entities/Enemy';
 import { FlightPathManager, type SubWaveType } from './FlightPathManager';
 import { BezierCurve, CompositeBezierPath } from '../math/Bezier';
 import { EnemyType, EnemyState, type FormationSlot, type Point2D } from '../types';
+import { DifficultyCalculator, type StageDifficultyConfig } from './DifficultyCalculator';
+import { ObjectPool } from '../core/ObjectPool';
+import type { DynamicDifficultyManager } from './DynamicDifficultyManager';
+import { PhantomClone } from '../core/glitch/PhantomClone';
 
 export interface FormationManagerConfig {
   onEnemyFire?: (request: EnemyBulletRequest) => void;
   onEnemyDestroyed?: (enemy: Enemy, points: number) => void;
   onStageClear?: () => void;
   onTractorBeamRequest?: (boss: Enemy) => void;
+  onSpawnBoss?: (stage: number) => Enemy[];
+  dynamicDifficultyManager?: DynamicDifficultyManager;
+  glitchEventManager?: any;
 }
 
 export class FormationManager {
@@ -40,6 +47,10 @@ export class FormationManager {
   public readonly slots: FormationSlot[] = [];
   public readonly enemies: Enemy[] = [];
   public readonly slotToEnemyMap: Map<string, Enemy> = new Map();
+  public readonly enemyPool: ObjectPool<Enemy>;
+  public readonly phantomPool: ObjectPool<PhantomClone>;
+  public glitchEventManager?: any;
+  private readonly scratchSlotPos: Point2D = { x: 0, y: 0 };
 
   // Sub-Wave Ingress Orchestrator State
   public isEntryWaveActive: boolean = false;
@@ -54,11 +65,20 @@ export class FormationManager {
   public stage: number = 1;
   public maxConcurrentDivers: number = 2;
 
+  // Difficulty & Scaling Configuration
+  public stageConfig!: StageDifficultyConfig;
+  public diveSpeedMultiplier: number = 1.0;
+  public bulletSpeed: number = 180;
+  public isChallengingStage: boolean = false;
+  public formationFireTimer: number = 0;
+
   // Callbacks
   public onEnemyFire?: (request: EnemyBulletRequest) => void;
   public onEnemyDestroyed?: (enemy: Enemy, points: number) => void;
   public onStageClear?: () => void;
   public onTractorBeamRequest?: (boss: Enemy) => void;
+  public onSpawnBoss?: (stage: number) => Enemy[];
+  public dynamicDifficultyManager?: DynamicDifficultyManager;
 
   constructor(config?: FormationManagerConfig) {
     if (config) {
@@ -66,9 +86,45 @@ export class FormationManager {
       this.onEnemyDestroyed = config.onEnemyDestroyed;
       this.onStageClear = config.onStageClear;
       this.onTractorBeamRequest = config.onTractorBeamRequest;
+      this.onSpawnBoss = config.onSpawnBoss;
+      this.dynamicDifficultyManager = config.dynamicDifficultyManager;
+      this.glitchEventManager = config.glitchEventManager;
     }
 
+    this.enemyPool = new ObjectPool<Enemy>({
+      factory: () => new Enemy(),
+      reset: (e) => e.reset(),
+      initialSize: 64,
+      maxSize: 64,
+      autoExpand: false,
+    });
+
+    this.phantomPool = new ObjectPool<PhantomClone>({
+      factory: () => new PhantomClone(),
+      reset: (p) => p.reset(),
+      initialSize: 8,
+      maxSize: 8,
+      autoExpand: false,
+    });
+
+    this.stageConfig = DifficultyCalculator.getStageConfig(1);
     this.initializeGridSlots();
+  }
+
+  public getEffectiveDiveSpeedMultiplier(): number {
+    const base = this.diveSpeedMultiplier || 1.0;
+    if (this.isChallengingStage) {
+      return base;
+    }
+    const dda = this.dynamicDifficultyManager ? this.dynamicDifficultyManager.getDiveSpeedMultiplier() : 1.0;
+    return base * dda;
+  }
+
+  public getEffectiveBulletDensityMultiplier(): number {
+    if (this.isChallengingStage) {
+      return 1.0;
+    }
+    return this.dynamicDifficultyManager ? this.dynamicDifficultyManager.getBulletDensityMultiplier() : 1.0;
   }
 
   // ==========================================================================
@@ -151,7 +207,12 @@ export class FormationManager {
   /**
    * Computes dynamic slot position in virtual space at time t.
    */
-  public getSlotPosition(row: number, col: number, t: number = this.elapsedTime): Point2D {
+  public getSlotPosition(
+    row: number,
+    col: number,
+    t: number = this.elapsedTime,
+    out?: Point2D
+  ): Point2D {
     const sway =
       FormationManager.SWAY_AMPLITUDE *
       Math.sin(2 * Math.PI * FormationManager.SWAY_FREQUENCY * t);
@@ -178,6 +239,11 @@ export class FormationManager {
       row * FormationManager.ROW_PITCH +
       rowWave;
 
+    if (out) {
+      out.x = x;
+      out.y = y;
+      return out;
+    }
     return { x, y };
   }
 
@@ -186,6 +252,8 @@ export class FormationManager {
   // ==========================================================================
 
   public reset(): void {
+    this.enemyPool.clear();
+    this.phantomPool.clear();
     this.enemies.length = 0;
     this.slotToEnemyMap.clear();
     this.isEntryWaveActive = false;
@@ -193,6 +261,10 @@ export class FormationManager {
     this.subWaveTimer = 0;
     this.elapsedTime = 0;
     this.diveTimer = 0;
+    this.isChallengingStage = false;
+    this.diveSpeedMultiplier = 1.0;
+    this.bulletSpeed = 180;
+    this.formationFireTimer = 0;
 
     for (const slot of this.slots) {
       slot.occupied = false;
@@ -203,25 +275,75 @@ export class FormationManager {
   public spawnStage(stage: number = 1): void {
     this.reset();
     this.stage = stage;
+    this.stageConfig = DifficultyCalculator.getStageConfig(stage);
 
-    // Difficulty tuning
-    this.diveInterval = Math.max(1.8, 3.5 - (stage - 1) * 0.3);
-    this.maxConcurrentDivers = Math.min(4, 1 + Math.floor(stage / 2));
+    this.diveInterval = this.stageConfig.diveInterval;
+    this.maxConcurrentDivers = this.stageConfig.maxConcurrentDivers;
+    this.diveSpeedMultiplier = this.stageConfig.diveSpeedMultiplier;
+    this.bulletSpeed = this.stageConfig.enemyBulletSpeed;
+    this.isChallengingStage = this.stageConfig.isChallengingStage;
+    this.formationFireTimer = 0;
 
-    // Create 40 enemy instances
+    if (this.isChallengingStage) {
+      this.spawnChallengingStage();
+      return;
+    }
+
+    if (DifficultyCalculator.isBossStage(stage)) {
+      this.enemies.length = 0;
+      this.slotToEnemyMap.clear();
+      this.isEntryWaveActive = false;
+      if (this.onSpawnBoss) {
+        const bossEntities = this.onSpawnBoss(stage);
+        for (const e of bossEntities) {
+          this.enemies.push(e);
+        }
+      }
+      return;
+    }
+
+    // Create 40 enemy instances from enemyPool
     let nextId = 1;
     for (const slot of this.slots) {
-      const enemy = new Enemy({
-        id: nextId++,
-        type: slot.type,
-        row: slot.row,
-        col: slot.col,
-        x: slot.homeX,
-        y: -30,
-      });
+      const enemy = this.enemyPool.acquire() ?? new Enemy();
 
+      // Pre-align initial coordinates with entry wave launch origin to eliminate launch jumps
+      let initialX = slot.homeX;
+      let initialY = -30;
+      if ((slot.row === 3 && slot.col <= 2) || (slot.row === 4 && slot.col <= 4)) {
+        // Sub-Wave 4: Bottom-Left swoop origin
+        initialX = -20;
+        const waveIndex = slot.row === 3 ? slot.col : 3 + slot.col;
+        const staggerY = (waveIndex % 4) * 6;
+        initialY = 230 + staggerY;
+      } else if ((slot.row === 3 && slot.col >= 7) || (slot.row === 4 && slot.col >= 5)) {
+        // Sub-Wave 5: Bottom-Right swoop origin
+        initialX = 244;
+        const waveIndex = slot.row === 3 ? slot.col - 7 : 3 + (slot.col - 5);
+        const staggerY = (waveIndex % 4) * 6;
+        initialY = 230 + staggerY;
+      }
+
+      enemy.init(
+        nextId++,
+        slot.type,
+        slot.row,
+        slot.col,
+        initialX,
+        initialY,
+        this.stageConfig.tier
+      );
+
+      const { health, shield } = DifficultyCalculator.getEnemyHealthAndShield(stage, slot.type);
+      enemy.setDifficulty(health, shield, this.stageConfig.tier, this.getEffectiveDiveSpeedMultiplier());
       enemy.onFireBullet = (req) => this.onEnemyFire?.(req);
       enemy.onExplode = () => {};
+
+      // Initialize sub-wave enemies in ENTERING state offscreen until wave launch
+      enemy.state = EnemyState.ENTERING;
+      enemy.flightPath = null;
+      enemy.hasStartedPath = false;
+      enemy.active = true;
 
       this.enemies.push(enemy);
       const slotKey = `${slot.row}_${slot.col}`;
@@ -236,6 +358,174 @@ export class FormationManager {
     this.subWaveTimer = this.subWaveDelay; // Trigger Sub-Wave 1 immediately
   }
 
+  /**
+   * Spawns 40 enemies configured for 12 acrobatic Challenging Stages.
+   */
+  private spawnChallengingStage(): void {
+    this.enemyPool.clear();
+    this.phantomPool.clear();
+    this.enemies.length = 0;
+    this.slotToEnemyMap.clear();
+
+    // 5 waves of 8 enemies = 40 total
+    let nextId = 1;
+    for (let w = 0; w < 5; w++) {
+      for (let i = 0; i < 8; i++) {
+        let enemyType: EnemyType;
+        if (w === 4) {
+          enemyType = i < 4 ? EnemyType.BOSS : EnemyType.GOEI;
+        } else if (w % 2 === 0) {
+          enemyType = EnemyType.ZAKO;
+        } else {
+          enemyType = EnemyType.GOEI;
+        }
+
+        const enemy = this.enemyPool.acquire() ?? new Enemy();
+        enemy.init(
+          nextId++,
+          enemyType,
+          0,
+          0,
+          112,
+          -30,
+          this.stageConfig.tier,
+          1,
+          0
+        );
+
+        enemy.setDifficulty(1, 0, this.stageConfig.tier, this.diveSpeedMultiplier);
+        enemy.canShoot = false;
+        enemy.isChallenging = true;
+        enemy.active = false;
+        enemy.state = EnemyState.INACTIVE;
+        enemy.onFireBullet = (req) => this.onEnemyFire?.(req);
+        enemy.onExplode = () => {};
+
+        this.enemies.push(enemy);
+      }
+    }
+
+    this.isEntryWaveActive = true;
+    this.currentSubWave = 0;
+    this.subWaveTimer = this.subWaveDelay; // Trigger wave 0 immediately on first update tick
+  }
+
+  /**
+   * Launches one of the 5 acrobatic Challenging Stage waves.
+   */
+  private launchChallengingWave(waveIndex: number): void {
+    const startIndex = waveIndex * 8;
+    for (let i = 0; i < 8; i++) {
+      const enemy = this.enemies[startIndex + i];
+      if (!enemy) continue;
+
+      const path = this.createChallengingWavePath(waveIndex, i);
+      enemy.flightPath = path;
+      enemy.pathElapsedMs = -i * 100; // 100ms stagger between ships
+      enemy.state = EnemyState.ENTERING;
+      enemy.active = true;
+
+      const startSample = path.evaluateTime(0, Math.PI / 2);
+      enemy.x = startSample.position.x;
+      enemy.y = startSample.position.y;
+      enemy.rotation = startSample.heading;
+    }
+  }
+
+  /**
+   * Acrobatic composite Bézier flight paths for 5 Challenging Stage waves.
+   */
+  public createChallengingWavePath(waveIndex: number, alienIndex: number): CompositeBezierPath {
+    switch (waveIndex) {
+      case 0: {
+        // Wave 1: Top-Center Split Loop (8 Zakos)
+        const isLeft = alienIndex < 4;
+        const seg1 = new BezierCurve(
+          { x: 112, y: -20 },
+          { x: 112, y: 30 },
+          { x: 112, y: 70 },
+          { x: 112, y: 110 }
+        );
+        const seg2 = isLeft
+          ? new BezierCurve({ x: 112, y: 110 }, { x: 60, y: 160 }, { x: 25, y: 120 }, { x: 65, y: 80 })
+          : new BezierCurve({ x: 112, y: 110 }, { x: 164, y: 160 }, { x: 199, y: 120 }, { x: 159, y: 80 });
+        const seg3 = isLeft
+          ? new BezierCurve({ x: 65, y: 80 }, { x: 95, y: 50 }, { x: 40, y: 220 }, { x: 20, y: 310 })
+          : new BezierCurve({ x: 159, y: 80 }, { x: 129, y: 50 }, { x: 184, y: 220 }, { x: 204, y: 310 });
+        return new CompositeBezierPath(`CHALLENGING_WAVE_1_${alienIndex}`, [
+          { curve: seg1, speed: 165 },
+          { curve: seg2, speed: 165 },
+          { curve: seg3, speed: 165 },
+        ]);
+      }
+      case 1: {
+        // Wave 2: Intersecting Figure-8 Sweeper (8 Goeis)
+        const seg1 = new BezierCurve({ x: 235, y: -20 }, { x: 210, y: 60 }, { x: 120, y: 100 }, { x: 70, y: 120 });
+        const seg2 = new BezierCurve({ x: 70, y: 120 }, { x: 30, y: 140 }, { x: 20, y: 185 }, { x: 65, y: 195 });
+        const seg3 = new BezierCurve({ x: 65, y: 195 }, { x: 120, y: 205 }, { x: 160, y: 160 }, { x: 185, y: 130 });
+        const seg4 = new BezierCurve({ x: 185, y: 130 }, { x: 210, y: 100 }, { x: 100, y: 220 }, { x: -20, y: 270 });
+        return new CompositeBezierPath(`CHALLENGING_WAVE_2_${alienIndex}`, [
+          { curve: seg1, speed: 175 },
+          { curve: seg2, speed: 175 },
+          { curve: seg3, speed: 175 },
+          { curve: seg4, speed: 175 },
+        ]);
+      }
+      case 2: {
+        // Wave 3: Expanding Sinusoidal Spiral (8 Zakos)
+        const seg1 = new BezierCurve({ x: -15, y: 40 }, { x: 50, y: 40 }, { x: 140, y: 60 }, { x: 190, y: 80 });
+        const seg2 = new BezierCurve({ x: 190, y: 80 }, { x: 225, y: 100 }, { x: 120, y: 120 }, { x: 34, y: 140 });
+        const seg3 = new BezierCurve({ x: 34, y: 140 }, { x: -10, y: 150 }, { x: 90, y: 200 }, { x: 112, y: 240 });
+        const seg4 = new BezierCurve({ x: 112, y: 240 }, { x: 125, y: 265 }, { x: 112, y: 285 }, { x: 112, y: 310 });
+        return new CompositeBezierPath(`CHALLENGING_WAVE_3_${alienIndex}`, [
+          { curve: seg1, speed: 170 },
+          { curve: seg2, speed: 170 },
+          { curve: seg3, speed: 170 },
+          { curve: seg4, speed: 170 },
+        ]);
+      }
+      case 3: {
+        // Wave 4: Double Crossing Swarm (8 Goeis)
+        if (alienIndex < 4) {
+          const seg1 = new BezierCurve({ x: -20, y: 30 }, { x: 30, y: 60 }, { x: 80, y: 100 }, { x: 112, y: 140 });
+          const seg2 = new BezierCurve({ x: 112, y: 140 }, { x: 160, y: 190 }, { x: 195, y: 210 }, { x: 170, y: 240 });
+          const seg3 = new BezierCurve({ x: 170, y: 240 }, { x: 140, y: 270 }, { x: 60, y: 280 }, { x: 15, y: 310 });
+          return new CompositeBezierPath(`CHALLENGING_WAVE_4_L_${alienIndex}`, [
+            { curve: seg1, speed: 180 },
+            { curve: seg2, speed: 180 },
+            { curve: seg3, speed: 180 },
+          ]);
+        } else {
+          const seg1 = new BezierCurve({ x: 244, y: 30 }, { x: 194, y: 60 }, { x: 144, y: 100 }, { x: 112, y: 140 });
+          const seg2 = new BezierCurve({ x: 112, y: 140 }, { x: 64, y: 190 }, { x: 29, y: 210 }, { x: 54, y: 240 });
+          const seg3 = new BezierCurve({ x: 54, y: 240 }, { x: 84, y: 270 }, { x: 164, y: 280 }, { x: 209, y: 310 });
+          return new CompositeBezierPath(`CHALLENGING_WAVE_4_R_${alienIndex}`, [
+            { curve: seg1, speed: 180 },
+            { curve: seg2, speed: 180 },
+            { curve: seg3, speed: 180 },
+          ]);
+        }
+      }
+      case 4:
+      default: {
+        // Wave 5: The Grand Armada (4 Bosses + 4 Goeis)
+        const offsets = [-30, -18, -6, 6, 18, 30, -12, 12];
+        const dx = offsets[alienIndex % offsets.length]!;
+        const exitX = dx < 0 ? -30 : 254;
+        const seg1 = new BezierCurve({ x: 112 + dx, y: -30 }, { x: 112 + dx, y: 40 }, { x: 112 + dx, y: 80 }, { x: 112 + dx, y: 115 });
+        const seg2 = new BezierCurve({ x: 112 + dx, y: 115 }, { x: 112 + dx * 1.5, y: 150 }, { x: 112 + dx * 1.8, y: 100 }, { x: 112 + dx, y: 80 });
+        const seg3 = new BezierCurve({ x: 112 + dx, y: 80 }, { x: 112, y: 140 }, { x: 112 + dx * 0.8, y: 220 }, { x: 112 + dx * 0.5, y: 250 });
+        const seg4 = new BezierCurve({ x: 112 + dx * 0.5, y: 250 }, { x: 112 + dx, y: 280 }, { x: exitX, y: 290 }, { x: exitX, y: 310 });
+        return new CompositeBezierPath(`CHALLENGING_WAVE_5_${alienIndex}`, [
+          { curve: seg1, speed: 185 },
+          { curve: seg2, speed: 185 },
+          { curve: seg3, speed: 185 },
+          { curve: seg4, speed: 185 },
+        ]);
+      }
+    }
+  }
+
   // ==========================================================================
   // 4. Sub-Wave Entry Orchestration
   // ==========================================================================
@@ -246,10 +536,19 @@ export class FormationManager {
     this.subWaveTimer += dt;
     if (this.subWaveTimer >= this.subWaveDelay && this.currentSubWave < 5) {
       this.subWaveTimer = 0;
-      this.launchSubWave(this.currentSubWave);
+      if (this.isChallengingStage) {
+        this.launchChallengingWave(this.currentSubWave);
+      } else {
+        this.launchSubWave(this.currentSubWave);
+      }
       this.currentSubWave++;
+    }
 
-      if (this.currentSubWave >= 5) {
+    if (this.currentSubWave >= 5) {
+      const hasEnteringEnemies = this.enemies.some(
+        (e) => e.active && e.state === EnemyState.ENTERING
+      );
+      if (!hasEnteringEnemies) {
         this.isEntryWaveActive = false;
       }
     }
@@ -317,13 +616,26 @@ export class FormationManager {
       const enemy = waveEnemies[i];
       if (!enemy) continue;
 
-      const slotPos = this.getSlotPosition(enemy.row, enemy.col, this.elapsedTime + 2.0);
-      const path = FlightPathManager.createEntryPath(waveType, i, slotPos);
+      // Staggered entry delay: 120ms between wingmen
+      const staggerDelaySec = (i * 120) / 1000;
+
+      // Iterative fixed-point arrival prediction: converges Bézier endpoint to moving slot (< 1.5 px)
+      this.getSlotPosition(enemy.row, enemy.col, this.elapsedTime + staggerDelaySec, this.scratchSlotPos);
+      let path = FlightPathManager.createEntryPath(waveType, i, this.scratchSlotPos);
+
+      for (let iter = 0; iter < 2; iter++) {
+        const expectedArrivalSec = this.elapsedTime + staggerDelaySec + path.totalDurationMs / 1000;
+        this.getSlotPosition(enemy.row, enemy.col, expectedArrivalSec, this.scratchSlotPos);
+        path = FlightPathManager.createEntryPath(waveType, i, this.scratchSlotPos);
+      }
 
       enemy.flightPath = path;
+      enemy.hasStartedPath = true;
       enemy.pathElapsedMs = -i * 120; // Staggered entry (120ms between wingmen)
       enemy.state = EnemyState.ENTERING;
       enemy.active = true;
+      enemy.returnSlotX = this.scratchSlotPos.x;
+      enemy.returnSlotY = this.scratchSlotPos.y;
 
       const startSample = path.evaluateTime(0, Math.PI / 2);
       enemy.x = startSample.position.x;
@@ -350,7 +662,8 @@ export class FormationManager {
     if (this.isEntryWaveActive) return;
 
     this.diveTimer += dt;
-    if (this.diveTimer < this.diveInterval) {
+    const effectiveDiveInterval = this.diveInterval / Math.max(0.1, this.getEffectiveBulletDensityMultiplier());
+    if (this.diveTimer < effectiveDiveInterval) {
       return;
     }
 
@@ -450,6 +763,8 @@ export class FormationManager {
     enemy.escortCount = 0;
     enemy.escortBossId = null;
     enemy.escortBoss = null;
+    enemy.shotsRemainingInDive = this.stageConfig ? this.stageConfig.shotsPerDive : 1;
+    enemy.diveSpeed = 160 * this.getEffectiveDiveSpeedMultiplier();
 
     const returnSlot = this.getSlotPosition(enemy.row, enemy.col, this.elapsedTime + 4.0);
     enemy.returnSlotX = returnSlot.x;
@@ -473,10 +788,13 @@ export class FormationManager {
 
     boss.flightPath = path;
     boss.pathElapsedMs = 0;
+    boss.isTractorDiving = true;
     boss.state = EnemyState.DIVING_SOLO;
     boss.escortCount = 0;
     boss.escortBossId = null;
     boss.escortBoss = null;
+    boss.shotsRemainingInDive = 0;
+    boss.diveSpeed = 160 * this.getEffectiveDiveSpeedMultiplier();
 
     const returnSlot = this.getSlotPosition(boss.row, boss.col, this.elapsedTime + 6.0);
     boss.returnSlotX = returnSlot.x;
@@ -496,6 +814,8 @@ export class FormationManager {
     leftGoei.escortCount = 0;
     leftGoei.escortBossId = null;
     leftGoei.escortBoss = null;
+    leftGoei.shotsRemainingInDive = this.stageConfig ? this.stageConfig.shotsPerDive : 1;
+    leftGoei.diveSpeed = 160 * this.getEffectiveDiveSpeedMultiplier();
     const leftSlot = this.getSlotPosition(leftGoei.row, leftGoei.col, this.elapsedTime + 4.0);
     leftGoei.returnSlotX = leftSlot.x;
     leftGoei.returnSlotY = leftSlot.y;
@@ -506,6 +826,8 @@ export class FormationManager {
     rightGoei.escortCount = 0;
     rightGoei.escortBossId = null;
     rightGoei.escortBoss = null;
+    rightGoei.shotsRemainingInDive = this.stageConfig ? this.stageConfig.shotsPerDive : 1;
+    rightGoei.diveSpeed = 160 * this.getEffectiveDiveSpeedMultiplier();
     const rightSlot = this.getSlotPosition(rightGoei.row, rightGoei.col, this.elapsedTime + 4.0);
     rightGoei.returnSlotX = rightSlot.x;
     rightGoei.returnSlotY = rightSlot.y;
@@ -523,6 +845,8 @@ export class FormationManager {
     boss.escortCount = escorts.length;
     boss.escortBossId = null;
     boss.escortBoss = null;
+    boss.shotsRemainingInDive = this.stageConfig ? this.stageConfig.shotsPerDive : 1;
+    boss.diveSpeed = 160 * this.getEffectiveDiveSpeedMultiplier();
     const bossSlot = this.getSlotPosition(boss.row, boss.col, this.elapsedTime + 4.0);
     boss.returnSlotX = bossSlot.x;
     boss.returnSlotY = bossSlot.y;
@@ -545,6 +869,8 @@ export class FormationManager {
       escort.state = EnemyState.DIVING_ESCORT;
       escort.escortBossId = boss.id;
       escort.escortBoss = boss;
+      escort.shotsRemainingInDive = this.stageConfig ? this.stageConfig.shotsPerDive : 1;
+      escort.diveSpeed = 160 * this.getEffectiveDiveSpeedMultiplier();
       const escortSlot = this.getSlotPosition(escort.row, escort.col, this.elapsedTime + 4.0);
       escort.returnSlotX = escortSlot.x;
       escort.returnSlotY = escortSlot.y;
@@ -563,26 +889,120 @@ export class FormationManager {
   ): void {
     this.elapsedTime += dt;
 
+    if (this.isChallengingStage) {
+      // 1. Update Ingress Waves
+      this.updateEntryWaves(dt);
+
+      // 2. Update Active Ships along Bézier Curves
+      let livingCount = 0;
+      for (const enemy of this.enemies) {
+        if (!enemy.active) continue;
+
+        livingCount++;
+        enemy.update(dt, playerX, playerY);
+
+        // Despawn offscreen upon path completion
+        if (enemy.flightPath === null && enemy.state !== EnemyState.EXPLODING) {
+          enemy.active = false;
+          enemy.state = EnemyState.INACTIVE;
+        }
+      }
+
+      // STRICT INVARIANT: Complete suppression of enemy firing during challenging stage
+      // (NO calls to enemy.attemptFire or updateDiveScheduler)
+
+      // 3. Stage Clear Trigger: All 5 waves spawned AND all enemies resolved
+      if ((this.currentSubWave >= 5 || !this.isEntryWaveActive) && livingCount === 0 && this.enemies.length >= 40) {
+        this.onStageClear?.();
+      }
+      return;
+    }
+
     // 1. Update Sub-Wave Entry Phase
     this.updateEntryWaves(dt);
+    if (this.isEntryWaveActive && this.currentSubWave >= 5) {
+      const hasEnteringEnemies = this.enemies.some(
+        (e) => e.active && e.state === EnemyState.ENTERING
+      );
+      if (!hasEnteringEnemies) {
+        this.isEntryWaveActive = false;
+      }
+    }
 
     // 2. Update Dive Attack Scheduler
     this.updateDiveScheduler(dt, playerX, playerIsDual);
 
+    // 2b. Formation Sniper Fire (Elite & Dreadnought Tiers)
+    if (this.stageConfig && this.stageConfig.formationFireInterval < Infinity) {
+      this.formationFireTimer += dt;
+      const effectiveSniperInterval =
+        this.stageConfig.formationFireInterval / Math.max(0.1, this.getEffectiveBulletDensityMultiplier());
+      if (this.formationFireTimer >= effectiveSniperInterval) {
+        this.formationFireTimer = 0;
+        this.triggerFormationSniperShot(playerX, playerY);
+      }
+    }
+
     // 3. Update Individual Enemy Positions & States
     let livingCount = 0;
+    const hasKinematicGlitch = Boolean(this.glitchEventManager?.hasActiveKinematicAnomaly?.());
+    const glitchType = this.glitchEventManager?.getActiveType?.();
+    const isSector = Boolean(this.glitchEventManager?.isSectorActive?.());
 
     for (const enemy of this.enemies) {
       if (!enemy.active) continue;
 
       livingCount++;
 
-      // If locked in formation, position follows harmonic slot coordinates
+      // 1. In-Formation synchronization: Follow harmonic slot coordinates
       if (enemy.state === EnemyState.IN_FORMATION) {
-        const slotPos = this.getSlotPosition(enemy.row, enemy.col, this.elapsedTime);
-        enemy.x = slotPos.x;
-        enemy.y = slotPos.y;
+        this.getSlotPosition(enemy.row, enemy.col, this.elapsedTime, this.scratchSlotPos);
+        enemy.x = this.scratchSlotPos.x;
+        enemy.y = this.scratchSlotPos.y;
         enemy.rotation = 0;
+      }
+
+      // 2. Closed-Loop Dynamic Slot Synchronization for Returning & Entering Enemies
+      const isOffscreen = enemy.y < 0 || enemy.x < 0 || enemy.x > 224;
+      if (
+        enemy.state === EnemyState.RETURNING_TO_FORMATION ||
+        (enemy.state === EnemyState.ENTERING && !isOffscreen)
+      ) {
+        this.getSlotPosition(enemy.row, enemy.col, this.elapsedTime, this.scratchSlotPos);
+        enemy.returnSlotX = this.scratchSlotPos.x;
+        enemy.returnSlotY = this.scratchSlotPos.y;
+      }
+
+      // 3. Fast-forward fallback if entry waves were deactivated externally (e.g. unit test fixture)
+      if (!this.isEntryWaveActive && enemy.state === EnemyState.ENTERING && enemy.flightPath === null && !enemy.hasStartedPath) {
+        this.getSlotPosition(enemy.row, enemy.col, this.elapsedTime, this.scratchSlotPos);
+        enemy.x = this.scratchSlotPos.x;
+        enemy.y = this.scratchSlotPos.y;
+        enemy.state = EnemyState.IN_FORMATION;
+        enemy.rotation = 0;
+      }
+
+      // Check anomalous kinematics triggers during dive
+      const isDiving =
+        enemy.state === EnemyState.DIVING_SOLO ||
+        enemy.state === EnemyState.DIVING_ESCORT ||
+        enemy.state === EnemyState.CAPTURED_HOSTILE;
+
+      if (isDiving && hasKinematicGlitch && !enemy.isChallenging && !(enemy as any).isEpicBoss) {
+        enemy.isGlitched = true;
+        if (glitchType === 'MIRAGE_CLONES' || isSector) {
+          enemy.canSpawnMirageClone = true;
+        }
+        if (glitchType === 'QUANTUM_TELEPORT' || isSector) {
+          if (enemy.diveTimer >= 0.5 && !enemy.isTeleporting && Math.random() < 0.04) {
+            enemy.triggerQuantumTeleport();
+          }
+        }
+        if (glitchType === 'KINETIC_INVERSION' || isSector) {
+          if (enemy.y >= 100 && enemy.y <= 140 && !enemy.isKineticInverted && Math.random() < 0.06) {
+            enemy.triggerKineticInversion();
+          }
+        }
       }
 
       // Update enemy internal state
@@ -591,11 +1011,14 @@ export class FormationManager {
       // Check if Boss has reached tractor beam altitude during tractor dive
       if (
         enemy.type === EnemyType.BOSS &&
+        !(enemy as { isEpicBoss?: boolean }).isEpicBoss &&
+        enemy.isTractorDiving &&
         enemy.state === EnemyState.DIVING_SOLO &&
         enemy.flightPath === null &&
         enemy.y >= 95 &&
         enemy.y <= 105
       ) {
+        enemy.isTractorDiving = false;
         enemy.state = EnemyState.TRACTOR_BEAM_ACTIVE;
         enemy.vx = 0;
         enemy.vy = 0;
@@ -610,10 +1033,18 @@ export class FormationManager {
         enemy.state === EnemyState.CAPTURED_HOSTILE
       ) {
         if (enemy.y > 60 && enemy.y < 220) {
-          enemy.attemptFire(playerX, playerY, 180 + this.stage * 15);
+          enemy.attemptFire(playerX, playerY, this.bulletSpeed);
         }
       }
     }
+
+    // 3.5 Update active phantom decoy clones
+    this.phantomPool.forEachActiveSafe((clone) => {
+      clone.update(dt);
+      if (!clone.active) {
+        this.phantomPool.release(clone);
+      }
+    });
 
     // 4. Check Stage Clear Trigger
     if (livingCount === 0 && !this.isEntryWaveActive && this.enemies.length > 0) {
@@ -621,11 +1052,45 @@ export class FormationManager {
     }
   }
 
+  private triggerFormationSniperShot(playerX: number, playerY: number): void {
+    const formationEnemies = this.enemies.filter(
+      (e) => e.active && e.state === EnemyState.IN_FORMATION && e.canShoot
+    );
+    if (formationEnemies.length === 0) return;
+
+    let closestEnemy = formationEnemies[0]!;
+    let minDiff = Math.abs(closestEnemy.x - playerX);
+    for (let i = 1; i < formationEnemies.length; i++) {
+      const e = formationEnemies[i]!;
+      const diff = Math.abs(e.x - playerX);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestEnemy = e;
+      }
+    }
+
+    closestEnemy.attemptFire(playerX, playerY, this.bulletSpeed);
+  }
+
   public render(ctx: CanvasRenderingContext2D): void {
     for (const enemy of this.enemies) {
       if (enemy.active) {
         enemy.render(ctx);
       }
+    }
+    this.phantomPool.forEachActive((clone) => {
+      clone.render(ctx);
+    });
+  }
+
+  public spawnMirageClones(x: number, y: number, type: EnemyType = EnemyType.ZAKO): void {
+    const clone1 = this.phantomPool.acquire();
+    if (clone1) {
+      clone1.init(x - 8, y, -45, 120, type);
+    }
+    const clone2 = this.phantomPool.acquire();
+    if (clone2) {
+      clone2.init(x + 8, y, 45, 120, type);
     }
   }
 
@@ -643,5 +1108,23 @@ export class FormationManager {
 
   public getEnemyAt(row: number, col: number): Enemy | null {
     return this.slotToEnemyMap.get(`${row}_${col}`) || null;
+  }
+
+  public addEnemy(enemy: Enemy): void {
+    if (!this.enemies.includes(enemy)) {
+      this.enemies.push(enemy);
+    }
+  }
+
+  public getEnemyPool(): ObjectPool<Enemy> {
+    return this.enemyPool;
+  }
+
+  public getPhantomPool(): ObjectPool<PhantomClone> {
+    return this.phantomPool;
+  }
+
+  public forEachActivePhantom(callback: (clone: PhantomClone) => void): void {
+    this.phantomPool.forEachActive(callback);
   }
 }

@@ -452,6 +452,114 @@ export class ParticleSystem {
     }
   }
 
+  /**
+   * Preset 7: Nova Barrage Missile Impact Burst & Shockwave Ring
+   */
+  public spawnNovaImpact(x: number, y: number, count: number = 14): void {
+    const novaColors = [PALETTE.BLUE_CYAN, PALETTE.PURPLE, PALETTE.WHITE];
+
+    // 1. Expanding shockwave ring
+    const sw = this.pool.acquire();
+    if (sw) {
+      sw.active = true;
+      sw.isShockwave = true;
+      sw.type = 'SHOCKWAVE';
+      sw.x = x;
+      sw.y = y;
+      sw.shockwaveRadius = 2;
+      sw.shockwaveMaxRadius = 16;
+      sw.color = PALETTE.BLUE_CYAN;
+      sw.life = 0;
+      sw.maxLife = 0.25;
+      sw.alphaCurve = 'linear';
+    }
+
+    // 2. High-velocity radial neon sparks
+    for (let i = 0; i < count; i++) {
+      const p = this.pool.acquire();
+      if (!p) break;
+
+      const angle = (i * 2 * Math.PI) / count + (Math.random() - 0.5) * 0.4;
+      const speed = 80 + Math.random() * 70; // 80 - 150 px/s
+
+      p.active = true;
+      p.isShockwave = false;
+      p.type = 'SPARK';
+      p.x = x;
+      p.y = y;
+      p.vx = Math.cos(angle) * speed;
+      p.vy = Math.sin(angle) * speed;
+      p.ax = 0;
+      p.ay = 0;
+      p.drag = 0.90;
+      p.color = novaColors[i % novaColors.length] ?? PALETTE.BLUE_CYAN;
+      p.size = i % 3 === 0 ? 2 : 1;
+      p.width = p.size;
+      p.height = p.size;
+      p.life = 0;
+      p.maxLife = 0.20 + Math.random() * 0.10; // 0.20 - 0.30s
+      p.alphaCurve = 'linear';
+    }
+  }
+
+  /**
+   * Preset 8: Dimensional Warp Ram Relativistic Doppler Particle Wake
+   */
+  public spawnWarpWake(x: number, y: number, vx: number = 0, vy: number = 60): void {
+    const p = this.pool.acquire();
+    if (!p) return;
+
+    const wakeColors = [PALETTE.PURPLE, PALETTE.BLUE_CYAN, PALETTE.WHITE];
+
+    p.active = true;
+    p.isShockwave = false;
+    p.type = 'SPARK';
+    p.x = x + (Math.random() - 0.5) * 4;
+    p.y = y;
+    p.vx = vx + (Math.random() - 0.5) * 30;
+    p.vy = vy + Math.random() * 40; // Trailing downward
+    p.ax = 0;
+    p.ay = 0;
+    p.drag = 0.94;
+    p.color = wakeColors[Math.floor(Math.random() * wakeColors.length)] ?? PALETTE.BLUE_CYAN;
+    p.size = Math.random() > 0.5 ? 2 : 1;
+    p.width = p.size;
+    p.height = p.size;
+    p.life = 0;
+    p.maxLife = 0.20 + Math.random() * 0.15; // 0.20 - 0.35s
+    p.alphaCurve = 'linear';
+  }
+
+  /**
+   * Preset 9: Nanite Gray Goo Bullet Dissolution Sizzle Sparks
+   */
+  public spawnNaniteDissolve(x: number, y: number, count: number = 6): void {
+    const naniteColors = [PALETTE.GREY_LIGHT, PALETTE.GREY_DARK, PALETTE.WHITE];
+
+    for (let i = 0; i < count; i++) {
+      const p = this.pool.acquire();
+      if (!p) break;
+
+      p.active = true;
+      p.isShockwave = false;
+      p.type = 'SPARK';
+      p.x = x + (Math.random() - 0.5) * 6;
+      p.y = y + (Math.random() - 0.5) * 6;
+      p.vx = (Math.random() - 0.5) * 40;
+      p.vy = -(20 + Math.random() * 30); // Drifting upward sizzle
+      p.ax = 0;
+      p.ay = -10;
+      p.drag = 0.92;
+      p.color = naniteColors[i % naniteColors.length] ?? PALETTE.GREY_LIGHT;
+      p.size = 1;
+      p.width = 1;
+      p.height = 1;
+      p.life = 0;
+      p.maxLife = 0.15 + Math.random() * 0.10;
+      p.alphaCurve = 'linear';
+    }
+  }
+
   // ==========================================================================
   // 2. Fixed Timestep Update Pipeline
   // ==========================================================================
