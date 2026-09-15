@@ -568,9 +568,9 @@ describe('Milestone M32: Adversarial Keyboard Concurrency & Ghosting Stress Suit
       mockWindow.dispatchEvent(new MockKeyboardEvent('keyup', { code: 'KeyX', key: 'x' }));
       mockWindow.dispatchEvent(new MockKeyboardEvent('keyup', { code: 'KeyM', key: 'm' }));
 
-      // Reverse order check with ShiftRight for P2
+      // Reverse order check with KeyM for P2
       mockWindow.dispatchEvent(new MockKeyboardEvent('keydown', { code: 'KeyX', key: 'x' }));
-      mockWindow.dispatchEvent(new MockKeyboardEvent('keydown', { code: 'ShiftRight', key: 'Shift' }));
+      mockWindow.dispatchEvent(new MockKeyboardEvent('keydown', { code: 'KeyM', key: 'm' }));
 
       expect(handler.consumeAction('special', 'p2')).toBe(true);
       expect(handler.consumeAction('special', 'p2')).toBe(false);

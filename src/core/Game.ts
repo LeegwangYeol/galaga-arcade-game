@@ -66,7 +66,7 @@ export class Game implements IGameEngine {
   };
 
   // DOM & Canvas Elements
-  public canvas: HTMLCanvasElement;
+  public canvas: HTMLCanvasElement | null;
   public ctx: CanvasRenderingContext2D;
 
   // Subsystems
@@ -140,6 +140,43 @@ export class Game implements IGameEngine {
   public stateTimer: number = 0;
   public blinkTimer: number = 0;
   private isInitialized: boolean = false;
+
+  // Zero-GC Scratch Buffers & Lifecycle Callbacks
+  private fullscreenUnbindCallback: (() => void) | null = null;
+  private readonly _prevPlayerX: number[] = [0, 0];
+  private readonly _scratchChronoField = { x: 0, y: 0, radiusSq: 14400, slowFactor: 0.40 };
+  private readonly _hudRenderState = {
+    score: 0,
+    highScore: 0,
+    lives: 3,
+    stage: 1,
+    is1UpBlinking: false,
+    specialEnergy: 0,
+    isSpecialReady: false,
+    selectedSpecial: 'NOVA_BARRAGE' as any,
+  };
+  private readonly _screenRenderCtx: ScreenRenderContext = {
+    ctx: null as any,
+    width: 0,
+    height: 0,
+    stateTimer: 0,
+    blinkTimer: 0,
+    score: 0,
+    highScore: 0,
+    stage: 1,
+    lives: 3,
+    shotsFired: 0,
+    hits: 0,
+    challengingHits: 0,
+    isDual: false,
+    isCoop: false,
+    p1Score: 0,
+    p2Score: 0,
+  };
+
+  public get enemyPool() {
+    return this.formationManager.getEnemyPool();
+  }
 
   constructor(canvasElementOrId?: HTMLCanvasElement | string) {
     // 1. Resolve or create canvas element
@@ -331,11 +368,11 @@ export class Game implements IGameEngine {
     if (typeof document !== 'undefined') {
       const btnFullscreen = document.getElementById('btn-fullscreen');
       if (btnFullscreen) {
-        this.fullscreenManager.bindToggleButton(btnFullscreen);
+        this.fullscreenUnbindCallback = this.fullscreenManager.bindToggleButton(btnFullscreen);
       }
     }
     this.starfield = new Starfield(Game.VIRTUAL_WIDTH, Game.VIRTUAL_HEIGHT);
-    this.inputHandler = new InputHandler(this.canvas, this.screenManager, () => this.unlockAudio());
+    this.inputHandler = new InputHandler(this.canvas!, this.screenManager, () => this.unlockAudio());
 
     // 7. Initialize Player & Bullet Subsystems
     this.bulletManager = new BulletManager({
@@ -650,6 +687,11 @@ export class Game implements IGameEngine {
    */
   public destroy(): void {
     this.stop();
+    if (this.fullscreenUnbindCallback) {
+      this.fullscreenUnbindCallback();
+      this.fullscreenUnbindCallback = null;
+    }
+    this.audioContextManager?.detachAutoUnlockListeners();
     if (this.crisisEventManager) {
       this.crisisEventManager.destroy();
     }
@@ -686,6 +728,7 @@ export class Game implements IGameEngine {
     this.soundSynth.stopAll();
     MusicJingles.stopAll();
     this.isInitialized = false;
+    this.canvas = null;
   }
 
   public getCrisisEventManager(): CrisisEventManager {
@@ -752,6 +795,8 @@ export class Game implements IGameEngine {
         this.starfield.setSpeedState('NORMAL');
         this.tractorBeam.reset();
         this.soundSynth.stopTractorBeam();
+        this.bulletManager.clear();
+        this.powerUpManager?.reset();
         if (this.bossManager) {
           this.bossManager.onStageClear();
         }
@@ -891,13 +936,18 @@ export class Game implements IGameEngine {
     this.particleSystem.update(dt);
 
     // Update projectiles (player missiles move normally, enemy bullets freeze if enemyDt == 0, slowed if in Chrono Field)
-    const p1Chrono = this.playerManager.getPlayer('p1')?.hasChronoField;
-    const p2Chrono = this.playerManager.getPlayer('p2')?.hasChronoField;
-    const chronoField = p1Chrono
-      ? { x: this.playerManager.getPlayer('p1')!.x, y: this.playerManager.getPlayer('p1')!.y, radiusSq: 14400, slowFactor: 0.40 }
-      : (p2Chrono
-        ? { x: this.playerManager.getPlayer('p2')!.x, y: this.playerManager.getPlayer('p2')!.y, radiusSq: 14400, slowFactor: 0.40 }
-        : undefined);
+    const p1 = this.playerManager.getPlayer('p1');
+    const p2 = this.playerManager.getPlayer('p2');
+    let chronoField: typeof this._scratchChronoField | undefined;
+    if (p1?.hasChronoField) {
+      this._scratchChronoField.x = p1.x;
+      this._scratchChronoField.y = p1.y;
+      chronoField = this._scratchChronoField;
+    } else if (p2?.hasChronoField) {
+      this._scratchChronoField.x = p2.x;
+      this._scratchChronoField.y = p2.y;
+      chronoField = this._scratchChronoField;
+    }
     this.bulletManager.update(dt, enemyDt, chronoField);
     for (const p of this.playerManager.getPlayers()) {
       p.activeMissileCount = this.bulletManager.getPlayerBulletCount(p.id);
@@ -992,17 +1042,19 @@ export class Game implements IGameEngine {
 
   private updatePlaying(dt: number): void {
     // 0. Handle Special Move Inputs
-    if (
-      this.inputHandler.consumeAction('special' as any) ||
-      this.inputHandler.consumeAction('specialMove' as any)
-    ) {
-      if (this.specialMovesManager) {
-        this.specialMovesManager.trigger();
+    for (const pId of ['p1', 'p2'] as const) {
+      if (
+        this.inputHandler.consumeAction('special', pId) ||
+        this.inputHandler.consumeAction('specialMove', pId) ||
+        (!this.isCoop() && pId === 'p1' && (this.inputHandler.consumeAction('special' as any) || this.inputHandler.consumeAction('specialMove' as any)))
+      ) {
+        this.specialMovesManager?.trigger(undefined, pId);
       }
-    }
-    if (this.inputHandler.consumeAction('cycleSpecial' as any)) {
-      if (this.specialMovesManager) {
-        this.specialMovesManager.cycleSpecial();
+      if (
+        this.inputHandler.consumeAction('cycleSpecial', pId) ||
+        (!this.isCoop() && pId === 'p1' && this.inputHandler.consumeAction('cycleSpecial' as any))
+      ) {
+        this.specialMovesManager?.cycleSpecial();
       }
     }
 
@@ -1021,7 +1073,13 @@ export class Game implements IGameEngine {
     const inputs = this.isCoop()
       ? this.inputHandler.getDualInputState()
       : this.inputHandler.getState();
-    const prevPlayerX = this.player.x;
+    const players = this.playerManager.getPlayers();
+    for (let i = 0; i < players.length; i++) {
+      const p = players[i];
+      if (p) {
+        this._prevPlayerX[i] = p.x;
+      }
+    }
 
     this.playerManager.update(dt, inputs);
 
@@ -1036,7 +1094,13 @@ export class Game implements IGameEngine {
 
     // Apply Telekinetic Stun thruster disruption (Stage 40)
     if (this.bossManager && this.bossManager.playerStunTimer > 0) {
-      this.player.x = prevPlayerX + (this.player.x - prevPlayerX) * 0.25;
+      for (let i = 0; i < players.length; i++) {
+        const p = players[i];
+        if (p) {
+          const prevX = this._prevPlayerX[i] ?? p.x;
+          p.x = prevX + (p.x - prevX) * 0.25;
+        }
+      }
     }
 
     if (this.bossManager) {
@@ -1164,7 +1228,7 @@ export class Game implements IGameEngine {
     };
 
     player.onGameOver = () => {
-      if (this.playerManager.areAllPlayersDead()) {
+      if (!this.isCoop() || this.playerManager.areAllPlayersDead()) {
         this.setState('GAME_OVER');
       }
     };
@@ -1637,69 +1701,65 @@ export class Game implements IGameEngine {
       this.inputHandler.renderTouchGuides(targetCtx);
     }
 
-    const hudState = {
-      score: this.scoreManager.score,
-      highScore: this.scoreManager.highScore,
-      lives: this.player ? this.player.lives : this.scoreManager.lives,
-      stage: this.scoreManager.stage,
-      is1UpBlinking: this.state === 'PLAYING' || this.state === 'CHALLENGING_STAGE',
-      specialEnergy: this.specialMovesManager ? this.specialMovesManager.energy : 0,
-      isSpecialReady: this.specialMovesManager ? this.specialMovesManager.isReady() : false,
-      selectedSpecial: this.specialMovesManager ? this.specialMovesManager.selectedMove : 'NOVA_BARRAGE',
-    };
+    this._hudRenderState.score = this.scoreManager.score;
+    this._hudRenderState.highScore = this.scoreManager.highScore;
+    this._hudRenderState.lives = this.player ? this.player.lives : this.scoreManager.lives;
+    this._hudRenderState.stage = this.scoreManager.stage;
+    this._hudRenderState.is1UpBlinking = this.state === 'PLAYING' || this.state === 'CHALLENGING_STAGE';
+    this._hudRenderState.specialEnergy = this.specialMovesManager ? this.specialMovesManager.energy : 0;
+    this._hudRenderState.isSpecialReady = this.specialMovesManager ? this.specialMovesManager.isReady() : false;
+    this._hudRenderState.selectedSpecial = this.specialMovesManager ? this.specialMovesManager.selectedMove : 'NOVA_BARRAGE';
 
     // 3. Render HUD Score Header (z-index: 6, fixed in screen space)
-    this.hud.renderHeader(targetCtx, hudState);
+    this.hud.renderHeader(targetCtx, this._hudRenderState);
 
     // 3.1 Render Boss HUD Health Bar (fixed in screen space, outside camera shake)
     if (this.bossManager && (this.state === 'PLAYING' || this.state === 'CHALLENGING_STAGE' || this.state === 'PAUSED')) {
       this.bossManager.render(targetCtx);
     }
 
-    const screenCtx: ScreenRenderContext = {
-      ctx: targetCtx,
-      width,
-      height,
-      stateTimer: this.stateTimer,
-      blinkTimer: this.blinkTimer,
-      score: this.scoreManager.score,
-      highScore: this.scoreManager.highScore,
-      stage: this.scoreManager.stage,
-      lives: this.player ? this.player.lives : this.scoreManager.lives,
-      shotsFired: this.scoreManager.shotsFired,
-      hits: this.scoreManager.shotsHit,
-      challengingHits: this.scoreManager.challengingHits,
-      isDual: this.player ? this.player.isDual : false,
-      isCoop: this.isCoop(),
-      p1Score: this.playerManager.getPlayer('p1')?.score ?? this.scoreManager.score,
-      p2Score: this.playerManager.getPlayer('p2')?.score ?? 0,
-    };
+    this._screenRenderCtx.ctx = targetCtx;
+    this._screenRenderCtx.width = width;
+    this._screenRenderCtx.height = height;
+    this._screenRenderCtx.stateTimer = this.stateTimer;
+    this._screenRenderCtx.blinkTimer = this.blinkTimer;
+    this._screenRenderCtx.score = this.scoreManager.score;
+    this._screenRenderCtx.highScore = this.scoreManager.highScore;
+    this._screenRenderCtx.stage = this.scoreManager.stage;
+    this._screenRenderCtx.lives = this.player ? this.player.lives : this.scoreManager.lives;
+    this._screenRenderCtx.shotsFired = this.scoreManager.shotsFired;
+    this._screenRenderCtx.hits = this.scoreManager.shotsHit;
+    this._screenRenderCtx.challengingHits = this.scoreManager.challengingHits;
+    this._screenRenderCtx.isDual = this.player ? this.player.isDual : false;
+    this._screenRenderCtx.isCoop = this.isCoop();
+    this._screenRenderCtx.p1Score = this.playerManager.getPlayer('p1')?.score ?? this.scoreManager.score;
+    this._screenRenderCtx.p2Score = this.playerManager.getPlayer('p2')?.score ?? 0;
 
     // 4. Render Active Screen State Overlay (z-index: 7, fixed in screen space)
     switch (this.state) {
       case 'TITLE':
-        Screens.renderTitleScreen(screenCtx);
+        Screens.renderTitleScreen(this._screenRenderCtx);
         break;
       case 'STAGE_INTRO':
-        Screens.renderStageIntro(screenCtx);
+        Screens.renderStageIntro(this._screenRenderCtx);
         break;
       case 'STAGE_CLEAR':
         if (this.isChallengingStage(this.stage)) {
-          Screens.renderChallengingResults(screenCtx);
+          Screens.renderChallengingResults(this._screenRenderCtx);
         }
         break;
       case 'GAME_OVER':
-        Screens.renderGameOver(screenCtx);
+        Screens.renderGameOver(this._screenRenderCtx);
         break;
       case 'PAUSED':
-        Screens.renderPauseOverlay(screenCtx);
+        Screens.renderPauseOverlay(this._screenRenderCtx);
         break;
       default:
         break;
     }
 
     // 5. Render HUD Footer (Lives & Stage Badges, fixed in screen space)
-    this.hud.renderFooter(targetCtx, hudState);
+    this.hud.renderFooter(targetCtx, this._hudRenderState);
   }
 
   private renderPlayingScreen(ctx: CanvasRenderingContext2D): void {
@@ -1826,7 +1886,7 @@ export class Game implements IGameEngine {
     return this.hud;
   }
 
-  public getCanvas(): HTMLCanvasElement {
+  public getCanvas(): HTMLCanvasElement | null {
     return this.canvas;
   }
 

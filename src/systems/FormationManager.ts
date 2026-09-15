@@ -55,6 +55,12 @@ export class FormationManager {
   public readonly phantomPool: ObjectPool<PhantomClone>;
   public glitchEventManager?: any;
   private readonly scratchSlotPos: Point2D = { x: 0, y: 0 };
+  private readonly _formationEnemies: Enemy[] = [];
+  private readonly _formationZakos: Enemy[] = [];
+  private readonly _formationGoeis: Enemy[] = [];
+  private readonly _formationBosses: Enemy[] = [];
+  private readonly _eligibleTractorBosses: Enemy[] = [];
+  private readonly _escortGoeis: Enemy[] = [];
 
   // Sub-Wave Ingress Orchestrator State
   public isEntryWaveActive: boolean = false;
@@ -742,19 +748,35 @@ export class FormationManager {
   }
 
   private triggerDiveAttack(playerX: number, playerIsDual: boolean = false): void {
-    const formationEnemies = this.enemies.filter(
-      (e) => e.active && e.state === EnemyState.IN_FORMATION
-    );
+    this._formationEnemies.length = 0;
+    this._formationZakos.length = 0;
+    this._formationGoeis.length = 0;
+    this._formationBosses.length = 0;
+    this._eligibleTractorBosses.length = 0;
 
-    if (formationEnemies.length === 0) return;
+    for (let i = 0; i < this.enemies.length; i++) {
+      const e = this.enemies[i];
+      if (e && e.active && e.state === EnemyState.IN_FORMATION) {
+        this._formationEnemies.push(e);
+        if (e.type === EnemyType.ZAKO) {
+          this._formationZakos.push(e);
+        } else if (e.type === EnemyType.GOEI) {
+          this._formationGoeis.push(e);
+        } else if (e.type === EnemyType.BOSS) {
+          this._formationBosses.push(e);
+          if (!e.hasCapturedFighter && e.health >= 1) {
+            this._eligibleTractorBosses.push(e);
+          }
+        }
+      }
+    }
+
+    if (this._formationEnemies.length === 0) return;
 
     // Stage 2+ Tractor Beam Dive Chance (against Single Fighter only, max 1 active beam)
     if (this.stage >= 2 && !this.isTractorBeamActive() && Math.random() < 0.35) {
-      const eligibleBosses = formationEnemies.filter(
-        (e) => e.type === EnemyType.BOSS && !e.hasCapturedFighter && e.health >= 1
-      );
-      if (eligibleBosses.length > 0) {
-        const boss = eligibleBosses[Math.floor(Math.random() * eligibleBosses.length)]!;
+      if (this._eligibleTractorBosses.length > 0) {
+        const boss = this._eligibleTractorBosses[Math.floor(Math.random() * this._eligibleTractorBosses.length)]!;
         if (this.isCoop() && this.playerManager) {
           const targetPlayer = this.selectTractorBeamTarget(boss);
           if (targetPlayer) {
@@ -772,39 +794,52 @@ export class FormationManager {
 
     if (roll < 0.40) {
       // 1. Solo Zako Dive
-      const zakos = formationEnemies.filter((e) => e.type === EnemyType.ZAKO);
-      if (zakos.length > 0) {
-        const zako = zakos[Math.floor(Math.random() * zakos.length)]!;
+      if (this._formationZakos.length > 0) {
+        const zako = this._formationZakos[Math.floor(Math.random() * this._formationZakos.length)]!;
         this.peelOffSolo(zako, playerX);
         return;
       }
     } else if (roll < 0.75) {
       // 2. Goei Paired Dive
-      const goeis = formationEnemies.filter((e) => e.type === EnemyType.GOEI);
-      if (goeis.length >= 2) {
+      if (this._formationGoeis.length >= 2) {
         // Find 2 adjacent or close Goeis
-        const leftGoei = goeis.find((g) => g.col <= 4) || goeis[0]!;
-        const rightGoei = goeis.find((g) => g.col >= 5 && g.id !== leftGoei.id) || goeis[1]!;
+        let leftGoei = this._formationGoeis[0]!;
+        for (let i = 0; i < this._formationGoeis.length; i++) {
+          if (this._formationGoeis[i]!.col <= 4) {
+            leftGoei = this._formationGoeis[i]!;
+            break;
+          }
+        }
+        let rightGoei = this._formationGoeis[1]!;
+        for (let i = 0; i < this._formationGoeis.length; i++) {
+          const g = this._formationGoeis[i]!;
+          if (g.col >= 5 && g.id !== leftGoei.id) {
+            rightGoei = g;
+            break;
+          }
+        }
         this.peelOffPairedGoeis(leftGoei, rightGoei, playerX);
         return;
-      } else if (goeis.length === 1) {
-        this.peelOffSolo(goeis[0]!, playerX);
+      } else if (this._formationGoeis.length === 1) {
+        this.peelOffSolo(this._formationGoeis[0]!, playerX);
         return;
       }
     }
 
     // 3. Boss Galaga Dive (Solo or with Goei Escorts)
-    const bosses = formationEnemies.filter((e) => e.type === EnemyType.BOSS);
-    if (bosses.length > 0) {
-      const boss = bosses[Math.floor(Math.random() * bosses.length)]!;
-      const goeis = formationEnemies.filter((e) => e.type === EnemyType.GOEI);
-      const escorts = goeis.slice(0, Math.min(2, goeis.length));
-      this.peelOffBossEscort(boss, escorts, playerX);
+    if (this._formationBosses.length > 0) {
+      const boss = this._formationBosses[Math.floor(Math.random() * this._formationBosses.length)]!;
+      this._escortGoeis.length = 0;
+      const escortLimit = Math.min(2, this._formationGoeis.length);
+      for (let i = 0; i < escortLimit; i++) {
+        this._escortGoeis.push(this._formationGoeis[i]!);
+      }
+      this.peelOffBossEscort(boss, this._escortGoeis, playerX);
       return;
     }
 
     // Fallback: Pick any formation enemy
-    const fallback = formationEnemies[Math.floor(Math.random() * formationEnemies.length)]!;
+    const fallback = this._formationEnemies[Math.floor(Math.random() * this._formationEnemies.length)]!;
     this.peelOffSolo(fallback, playerX);
   }
 
@@ -824,9 +859,9 @@ export class FormationManager {
     enemy.shotsRemainingInDive = this.stageConfig ? this.stageConfig.shotsPerDive : 1;
     enemy.diveSpeed = 160 * this.getEffectiveDiveSpeedMultiplier();
 
-    const returnSlot = this.getSlotPosition(enemy.row, enemy.col, this.elapsedTime + 4.0);
-    enemy.returnSlotX = returnSlot.x;
-    enemy.returnSlotY = returnSlot.y;
+    this.getSlotPosition(enemy.row, enemy.col, this.elapsedTime + 4.0, this.scratchSlotPos);
+    enemy.returnSlotX = this.scratchSlotPos.x;
+    enemy.returnSlotY = this.scratchSlotPos.y;
   }
 
   public launchTractorBeamDive(boss: Enemy, playerX: number): void {
@@ -854,9 +889,9 @@ export class FormationManager {
     boss.shotsRemainingInDive = 0;
     boss.diveSpeed = 160 * this.getEffectiveDiveSpeedMultiplier();
 
-    const returnSlot = this.getSlotPosition(boss.row, boss.col, this.elapsedTime + 6.0);
-    boss.returnSlotX = returnSlot.x;
-    boss.returnSlotY = returnSlot.y;
+    this.getSlotPosition(boss.row, boss.col, this.elapsedTime + 6.0, this.scratchSlotPos);
+    boss.returnSlotX = this.scratchSlotPos.x;
+    boss.returnSlotY = this.scratchSlotPos.y;
   }
 
   private peelOffPairedGoeis(leftGoei: Enemy, rightGoei: Enemy, playerX: number): void {
@@ -874,9 +909,9 @@ export class FormationManager {
     leftGoei.escortBoss = null;
     leftGoei.shotsRemainingInDive = this.stageConfig ? this.stageConfig.shotsPerDive : 1;
     leftGoei.diveSpeed = 160 * this.getEffectiveDiveSpeedMultiplier();
-    const leftSlot = this.getSlotPosition(leftGoei.row, leftGoei.col, this.elapsedTime + 4.0);
-    leftGoei.returnSlotX = leftSlot.x;
-    leftGoei.returnSlotY = leftSlot.y;
+    this.getSlotPosition(leftGoei.row, leftGoei.col, this.elapsedTime + 4.0, this.scratchSlotPos);
+    leftGoei.returnSlotX = this.scratchSlotPos.x;
+    leftGoei.returnSlotY = this.scratchSlotPos.y;
 
     rightGoei.flightPath = rightPath;
     rightGoei.pathElapsedMs = 0;
@@ -886,9 +921,9 @@ export class FormationManager {
     rightGoei.escortBoss = null;
     rightGoei.shotsRemainingInDive = this.stageConfig ? this.stageConfig.shotsPerDive : 1;
     rightGoei.diveSpeed = 160 * this.getEffectiveDiveSpeedMultiplier();
-    const rightSlot = this.getSlotPosition(rightGoei.row, rightGoei.col, this.elapsedTime + 4.0);
-    rightGoei.returnSlotX = rightSlot.x;
-    rightGoei.returnSlotY = rightSlot.y;
+    this.getSlotPosition(rightGoei.row, rightGoei.col, this.elapsedTime + 4.0, this.scratchSlotPos);
+    rightGoei.returnSlotX = this.scratchSlotPos.x;
+    rightGoei.returnSlotY = this.scratchSlotPos.y;
   }
 
   private peelOffBossEscort(boss: Enemy, escorts: Enemy[], playerX: number): void {
@@ -905,9 +940,9 @@ export class FormationManager {
     boss.escortBoss = null;
     boss.shotsRemainingInDive = this.stageConfig ? this.stageConfig.shotsPerDive : 1;
     boss.diveSpeed = 160 * this.getEffectiveDiveSpeedMultiplier();
-    const bossSlot = this.getSlotPosition(boss.row, boss.col, this.elapsedTime + 4.0);
-    boss.returnSlotX = bossSlot.x;
-    boss.returnSlotY = bossSlot.y;
+    this.getSlotPosition(boss.row, boss.col, this.elapsedTime + 4.0, this.scratchSlotPos);
+    boss.returnSlotX = this.scratchSlotPos.x;
+    boss.returnSlotY = this.scratchSlotPos.y;
 
     for (let i = 0; i < escorts.length; i++) {
       const escort = escorts[i];
@@ -929,9 +964,9 @@ export class FormationManager {
       escort.escortBoss = boss;
       escort.shotsRemainingInDive = this.stageConfig ? this.stageConfig.shotsPerDive : 1;
       escort.diveSpeed = 160 * this.getEffectiveDiveSpeedMultiplier();
-      const escortSlot = this.getSlotPosition(escort.row, escort.col, this.elapsedTime + 4.0);
-      escort.returnSlotX = escortSlot.x;
-      escort.returnSlotY = escortSlot.y;
+      this.getSlotPosition(escort.row, escort.col, this.elapsedTime + 4.0, this.scratchSlotPos);
+      escort.returnSlotX = this.scratchSlotPos.x;
+      escort.returnSlotY = this.scratchSlotPos.y;
     }
   }
 

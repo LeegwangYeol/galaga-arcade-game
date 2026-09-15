@@ -118,7 +118,7 @@ export function bootstrap(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingCo
     gameInstance.start();
   }
 
-  const canvas = gameInstance.getCanvas();
+  const canvas = gameInstance.getCanvas()!;
   const ctx = gameInstance.getContext();
 
   console.info(
@@ -151,6 +151,14 @@ export function getViewportTransform(): ViewportTransform {
   const w = typeof window !== 'undefined' ? window.innerWidth : VIRTUAL_RESOLUTION.width;
   const h = typeof window !== 'undefined' ? window.innerHeight : VIRTUAL_RESOLUTION.height;
   return calculateViewportTransform(w, h);
+}
+
+/**
+ * Cleanly destroys and tears down the global game instance.
+ */
+export function teardown(): void {
+  gameInstance?.destroy();
+  gameInstance = null;
 }
 
 // Auto-bootstrap on DOM load in browser runtime

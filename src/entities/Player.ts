@@ -133,6 +133,27 @@ export class Player {
   public onReflectionDeflect?: (x: number, y: number, threat?: Rect) => void;
   public onPlasmaBeamTick?: (x: number, y: number, isDual: boolean) => void;
 
+  // Preallocated buffer & pool for zero-GC weapon discharge (Milestone M37-D5)
+  private static readonly _spawnPool: BulletSpawnRequest[] = [
+    { x: 0, y: 0, vx: 0, vy: 0 },
+    { x: 0, y: 0, vx: 0, vy: 0 },
+    { x: 0, y: 0, vx: 0, vy: 0 },
+    { x: 0, y: 0, vx: 0, vy: 0 },
+    { x: 0, y: 0, vx: 0, vy: 0 },
+    { x: 0, y: 0, vx: 0, vy: 0 },
+  ];
+  private static readonly _spawnBuffer: BulletSpawnRequest[] = [];
+
+  private static pushSpawn(x: number, y: number, vx: number, vy: number): void {
+    const item = Player._spawnPool[Player._spawnBuffer.length];
+    if (!item) return;
+    item.x = x;
+    item.y = y;
+    item.vx = vx;
+    item.vy = vy;
+    Player._spawnBuffer.push(item);
+  }
+
   constructor(config?: PlayerConfig) {
     this.id = config?.id ?? 'p1';
     this.colorScheme = config?.colorScheme ?? (this.id === 'p2' ? 'crimson' : 'classic');
@@ -403,49 +424,53 @@ export class Player {
   // ==========================================================================
 
   public update(dt: number, input?: InputState): void {
+    const safeDt = Math.max(0, Number.isFinite(dt) ? dt : 0);
+
     if (this._state === 'revive_pending' || (this._state as any) === 'REVIVE_PENDING') {
-      this.updateRevivePending(dt);
+      this.updateRevivePending(safeDt);
+      this.clampPosition();
       return;
     }
     if (this._state === 'eliminated' || (this._state as any) === 'ELIMINATED') {
+      this.clampPosition();
       return;
     }
 
-    this.animTimer += dt;
+    this.animTimer += safeDt;
 
     if (this.shieldFlashTimer > 0) {
-      this.shieldFlashTimer = Math.max(0, this.shieldFlashTimer - dt);
+      this.shieldFlashTimer = Math.max(0, this.shieldFlashTimer - safeDt);
     }
 
     // 0. Update buff timers (paused during tractor beam capture)
     if (this._state !== 'capturing' && this._state !== 'CAPTURING') {
       if (this.rapidFireTimer > 0) {
-        this.rapidFireTimer = Math.max(0, this.rapidFireTimer - dt);
+        this.rapidFireTimer = Math.max(0, this.rapidFireTimer - safeDt);
       }
       if (this.scatterShotTimer > 0) {
-        this.scatterShotTimer = Math.max(0, this.scatterShotTimer - dt);
+        this.scatterShotTimer = Math.max(0, this.scatterShotTimer - safeDt);
       }
       if (this.engineBoosterTimer > 0) {
-        this.engineBoosterTimer = Math.max(0, this.engineBoosterTimer - dt);
+        this.engineBoosterTimer = Math.max(0, this.engineBoosterTimer - safeDt);
       }
       if (this.chronoFieldTimer > 0) {
-        this.chronoFieldTimer = Math.max(0, this.chronoFieldTimer - dt);
+        this.chronoFieldTimer = Math.max(0, this.chronoFieldTimer - safeDt);
       }
       if (this.reflectionShieldTimer > 0) {
-        this.reflectionShieldTimer = Math.max(0, this.reflectionShieldTimer - dt);
+        this.reflectionShieldTimer = Math.max(0, this.reflectionShieldTimer - safeDt);
         if (this.reflectionShieldTimer <= 0 && this.reflectionShieldHp <= 0) {
           this.hasReflectionShield = false;
         }
       }
       if (this.empCollectorTimer > 0) {
-        this.empCollectorTimer = Math.max(0, this.empCollectorTimer - dt);
+        this.empCollectorTimer = Math.max(0, this.empCollectorTimer - safeDt);
       }
       if (this.phaseDriveTimer > 0) {
-        this.phaseDriveTimer = Math.max(0, this.phaseDriveTimer - dt);
+        this.phaseDriveTimer = Math.max(0, this.phaseDriveTimer - safeDt);
       }
       if (this.plasmaBlasterTimer > 0) {
-        this.plasmaBlasterTimer = Math.max(0, this.plasmaBlasterTimer - dt);
-        this.plasmaTickTimer += dt;
+        this.plasmaBlasterTimer = Math.max(0, this.plasmaBlasterTimer - safeDt);
+        this.plasmaTickTimer += safeDt;
         while (this.plasmaTickTimer >= 0.1) {
           this.plasmaTickTimer -= 0.1;
           this.onPlasmaBeamTick?.(this.x, this.y, this.isDual);
@@ -457,17 +482,17 @@ export class Player {
 
     // 1. Update timers
     if (this.phaseWarpCooldown > 0) {
-      this.phaseWarpCooldown = Math.max(0, this.phaseWarpCooldown - dt);
+      this.phaseWarpCooldown = Math.max(0, this.phaseWarpCooldown - safeDt);
     }
     if (this.phaseGhostTimer > 0) {
-      this.phaseGhostTimer = Math.max(0, this.phaseGhostTimer - dt);
+      this.phaseGhostTimer = Math.max(0, this.phaseGhostTimer - safeDt);
     }
     if (this.fireCooldownTimer > 0) {
-      this.fireCooldownTimer = Math.max(0, this.fireCooldownTimer - dt);
+      this.fireCooldownTimer = Math.max(0, this.fireCooldownTimer - safeDt);
     }
 
     if (this.invulnerableTimer > 0) {
-      this.invulnerableTimer = Math.max(0, this.invulnerableTimer - dt);
+      this.invulnerableTimer = Math.max(0, this.invulnerableTimer - safeDt);
       if (this.invulnerableTimer === 0 && (this._state === 'respawning' || this._state === 'RESPAWNING')) {
         this._state = 'normal';
       }
@@ -476,16 +501,19 @@ export class Player {
     // 2. Dispatch state-specific update routines
     const s = this._state;
     if (s === 'normal' || s === 'ALIVE' || s === 'dual' || s === 'DUAL' || s === 'respawning' || s === 'RESPAWNING') {
-      this.updateControllable(dt, input);
+      this.updateControllable(safeDt, input);
     } else if (s === 'docking' || s === 'DOCKING') {
-      this.updateDocking(dt, input);
+      this.updateDocking(safeDt, input);
     } else if (s === 'capturing' || s === 'CAPTURING') {
-      this.updateCapturing(dt);
+      this.updateCapturing(safeDt);
     } else if (s === 'captured' || s === 'CAPTURED') {
       // Idle in captured state waiting for stage/boss logic
     } else if (s === 'destroyed' || s === 'DESTROYED') {
-      this.updateDestroyed(dt);
+      this.updateDestroyed(safeDt);
     }
+
+    // Unconditionally clamp position at end of frame
+    this.clampPosition();
   }
 
   private updateControllable(dt: number, input?: InputState): void {
@@ -502,7 +530,7 @@ export class Player {
       targetVx = -currentSpeed;
     } else if (right && !left) {
       targetVx = currentSpeed;
-    } else if (input.pointerActive && input.pointerX !== null) {
+    } else if (input.pointerActive && input.pointerX !== null && Number.isFinite(input.pointerX)) {
       // Pointer absolute steering with anti-jitter deadzone
       const dx = input.pointerX - this.x;
       if (Math.abs(dx) <= currentSpeed * dt) {
@@ -521,7 +549,7 @@ export class Player {
 
     // Phase Warp input check (Milestone M19)
     if (this.phaseDriveTimer > 0 && this.phaseWarpCooldown <= 0 && this.game?.inputHandler) {
-      const warpDir = this.game.inputHandler.consumePhaseWarp();
+      const warpDir = this.game.inputHandler.consumePhaseWarp(this.id);
       if (warpDir !== null) {
         this.triggerPhaseWarp(warpDir);
       }
@@ -591,6 +619,8 @@ export class Player {
       this.onCapturedComplete?.(this.captureTarget.x, this.captureTarget.y);
       if (this.lives > 0) {
         this.respawn();
+      } else if (this.isCoop()) {
+        this._state = 'captured';
       } else {
         this.onGameOver?.();
       }
@@ -658,7 +688,7 @@ export class Player {
     const vxSpread = V * sin15; // ~124.23 px/s
     const vySpread = -V * cos15; // ~-463.64 px/s
 
-    const spawns: BulletSpawnRequest[] = [];
+    Player._spawnBuffer.length = 0;
 
     if (this.isDual) {
       const leftX = this.x - 8;
@@ -668,17 +698,17 @@ export class Player {
       if (this.hasScatterShot) {
         // Twin 3-way spreads (6 streams total)
         // Left Cannon
-        spawns.push({ x: leftX, y: gunY, vx: -vxSpread, vy: vySpread });
-        spawns.push({ x: leftX, y: gunY, vx: 0, vy: -V });
-        spawns.push({ x: leftX, y: gunY, vx: vxSpread, vy: vySpread });
+        Player.pushSpawn(leftX, gunY, -vxSpread, vySpread);
+        Player.pushSpawn(leftX, gunY, 0, -V);
+        Player.pushSpawn(leftX, gunY, vxSpread, vySpread);
         // Right Cannon
-        spawns.push({ x: rightX, y: gunY, vx: -vxSpread, vy: vySpread });
-        spawns.push({ x: rightX, y: gunY, vx: 0, vy: -V });
-        spawns.push({ x: rightX, y: gunY, vx: vxSpread, vy: vySpread });
+        Player.pushSpawn(rightX, gunY, -vxSpread, vySpread);
+        Player.pushSpawn(rightX, gunY, 0, -V);
+        Player.pushSpawn(rightX, gunY, vxSpread, vySpread);
       } else {
         // Standard Twin Parallel Missiles
-        spawns.push({ x: leftX, y: gunY, vx: 0, vy: -V });
-        spawns.push({ x: rightX, y: gunY, vx: 0, vy: -V });
+        Player.pushSpawn(leftX, gunY, 0, -V);
+        Player.pushSpawn(rightX, gunY, 0, -V);
       }
     } else {
       const gunX = this.x;
@@ -686,16 +716,16 @@ export class Player {
 
       if (this.hasScatterShot) {
         // Single Fighter 3-way spread (0°, ±15°)
-        spawns.push({ x: gunX, y: gunY, vx: -vxSpread, vy: vySpread });
-        spawns.push({ x: gunX, y: gunY, vx: 0, vy: -V });
-        spawns.push({ x: gunX, y: gunY, vx: vxSpread, vy: vySpread });
+        Player.pushSpawn(gunX, gunY, -vxSpread, vySpread);
+        Player.pushSpawn(gunX, gunY, 0, -V);
+        Player.pushSpawn(gunX, gunY, vxSpread, vySpread);
       } else {
         // Standard Single Missile
-        spawns.push({ x: gunX, y: gunY, vx: 0, vy: -V });
+        Player.pushSpawn(gunX, gunY, 0, -V);
       }
     }
 
-    this.onFire?.(spawns);
+    this.onFire?.(Player._spawnBuffer);
     return true;
   }
 
@@ -915,10 +945,21 @@ export class Player {
     const isDual = this.isDual;
     const minX = isDual ? 16 : 12;
     const maxX = isDual ? 208 : 212;
-    this.x = Math.max(minX, Math.min(maxX, this.x));
+
+    if (!Number.isFinite(this.x)) {
+      this.x = this.id === 'p2' ? 144 : (minX + maxX) / 2;
+      this.vx = 0;
+    } else {
+      this.x = Math.max(minX, Math.min(maxX, this.x));
+    }
+
+    if (!Number.isFinite(this.vx)) {
+      this.vx = 0;
+    }
 
     const isWarpRam = this.isWarpRamActive || (this.game?.specialMovesManager?.isWarpRamActive?.() ?? false);
-    if (!isWarpRam) {
+    const isCapturing = this._state === 'capturing' || (this._state as any) === 'CAPTURING';
+    if (!isWarpRam && !isCapturing) {
       this.y = Player.BASELINE_Y;
     }
   }

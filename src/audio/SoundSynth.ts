@@ -47,6 +47,7 @@ export class SoundSynth {
 
   // Teardown generation token to prevent stale deferred decrements on stopAll
   private teardownGeneration: number = 0;
+  private readonly activeCleanups: Set<() => void> = new Set();
 
   private constructor(audioManager?: AudioContextManager) {
     this.audioManager = audioManager ?? AudioContextManager.getInstance();
@@ -582,6 +583,7 @@ export class SoundSynth {
     const cleanup = () => {
       if (cleanedUp) return;
       cleanedUp = true;
+      this.activeCleanups.delete(cleanup);
       if (this.teardownGeneration === currentGeneration) {
         this.activeVoiceCount = Math.max(0, this.activeVoiceCount - 1);
       }
@@ -593,6 +595,7 @@ export class SoundSynth {
         }
       }
     };
+    this.activeCleanups.add(cleanup);
     primarySource.onended = cleanup;
     setTimeout(cleanup, Math.ceil((durationSec + 0.05) * 1000));
   }
@@ -3146,6 +3149,16 @@ export class SoundSynth {
       }
     }
     this.activeLoops.clear();
+
+    for (const cleanup of this.activeCleanups) {
+      try {
+        cleanup();
+      } catch {
+        // Handled silently
+      }
+    }
+    this.activeCleanups.clear();
+
     this.teardownGeneration++;
     this.activeVoiceCount = 0;
   }

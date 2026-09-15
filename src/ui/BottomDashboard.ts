@@ -128,6 +128,7 @@ export class BottomDashboard {
   private elHighVal: HTMLElement | null = null;
   private elSingleHighContainer: HTMLElement | null = null;
   private elLivesContainer: HTMLElement | null = null;
+  private elSingleLivesRack: HTMLElement | null = null;
   private elPowerupRack: HTMLElement | null = null;
   private elSpecialContainer: HTMLElement | null = null;
   private elSpecialTrack: HTMLElement | null = null;
@@ -345,9 +346,8 @@ export class BottomDashboard {
     if (this.elScoreRackSingle) {
       this.elScoreRackSingle.style.display = isCoop ? 'none' : '';
     }
-    const singleLives = this.zoneLeft?.querySelector('.dash-lives-rack');
-    if (singleLives) {
-      (singleLives as HTMLElement).style.display = isCoop ? 'none' : '';
+    if (this.elSingleLivesRack) {
+      this.elSingleLivesRack.style.display = isCoop ? 'none' : '';
     }
     if (this.elPowerupRack) {
       this.elPowerupRack.style.display = isCoop ? 'none' : '';
@@ -548,6 +548,7 @@ export class BottomDashboard {
     this.elHighVal = null;
     this.elSingleHighContainer = null;
     this.elLivesContainer = null;
+    this.elSingleLivesRack = null;
     this.elPowerupRack = null;
     this.elSpecialContainer = null;
     this.elSpecialTrack = null;
@@ -658,8 +659,8 @@ export class BottomDashboard {
     this.elScoreRackSingle.appendChild(this.elSingleHighContainer);
 
     // Single-Player Lives Rack
-    const livesRack = document.createElement('div');
-    livesRack.className = 'dash-lives-rack single-only';
+    this.elSingleLivesRack = document.createElement('div');
+    this.elSingleLivesRack.className = 'dash-lives-rack single-only';
     const labelLives = document.createElement('span');
     labelLives.className = 'dash-label text-grey';
     labelLives.textContent = 'SHIPS';
@@ -674,11 +675,11 @@ export class BottomDashboard {
       const icon = this.createShipIconP1();
       this.lifeIcons.push(icon);
     }
-    livesRack.appendChild(labelLives);
-    livesRack.appendChild(this.elLivesContainer);
+    this.elSingleLivesRack.appendChild(labelLives);
+    this.elSingleLivesRack.appendChild(this.elLivesContainer);
 
     this.zoneLeft.appendChild(this.elScoreRackSingle);
-    this.zoneLeft.appendChild(livesRack);
+    this.zoneLeft.appendChild(this.elSingleLivesRack);
 
     // 2. Co-op Player 1 HUD (.coop-only .p1-hud-container)
     this.elP1Container = document.createElement('div');

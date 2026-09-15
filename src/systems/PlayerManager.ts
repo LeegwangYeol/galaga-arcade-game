@@ -27,6 +27,21 @@ export class PlayerManager {
   private p1: Player;
   private p2: Player | null = null;
   private game?: any;
+  private readonly p1Array: Player[];
+  private readonly coopArray: Player[];
+  private readonly livingPlayersBuffer: Player[] = [];
+
+  private updateCachedArrays(): void {
+    if (this.p1Array) {
+      this.p1Array[0] = this.p1;
+    }
+    if (this.coopArray) {
+      this.coopArray[0] = this.p1;
+      if (this.p2) {
+        this.coopArray[1] = this.p2;
+      }
+    }
+  }
 
   constructor(
     gameOrP1?: any,
@@ -65,6 +80,9 @@ export class PlayerManager {
       });
       this.onPlayerCreated?.(this.p2);
     }
+
+    this.p1Array = [this.p1];
+    this.coopArray = this.p2 ? [this.p1, this.p2] : [this.p1, this.p1];
   }
 
   // ==========================================================================
@@ -95,6 +113,7 @@ export class PlayerManager {
         });
         this.onPlayerCreated?.(this.p2);
       }
+      this.updateCachedArrays();
     }
   }
 
@@ -104,9 +123,9 @@ export class PlayerManager {
    */
   public getPlayers(): Player[] {
     if (this.mode === 'coop' && this.p2) {
-      return [this.p1, this.p2];
+      return this.coopArray;
     }
-    return [this.p1];
+    return this.p1Array;
   }
 
   /**
@@ -128,6 +147,7 @@ export class PlayerManager {
     } else {
       this.p1 = player;
     }
+    this.updateCachedArrays();
     this.onPlayerCreated?.(player);
   }
 
@@ -138,6 +158,7 @@ export class PlayerManager {
     this.p2 = player;
     if (player) {
       this.mode = 'coop';
+      this.updateCachedArrays();
       this.onPlayerCreated?.(player);
     } else {
       this.mode = 'single';
@@ -148,16 +169,23 @@ export class PlayerManager {
    * Returns players that are currently alive or active.
    */
   public getLivingPlayers(): Player[] {
-    return this.getPlayers().filter((p) => {
+    this.livingPlayersBuffer.length = 0;
+    const players = this.getPlayers();
+    for (let i = 0; i < players.length; i++) {
+      const p = players[i];
+      if (!p) continue;
       const s = p.state;
-      return (
+      if (
         s !== 'destroyed' &&
         s !== 'DESTROYED' &&
         s !== 'eliminated' &&
         (s as any) !== 'ELIMINATED' &&
         (p.lives > 0 || s === 'respawning' || s === 'RESPAWNING')
-      );
-    });
+      ) {
+        this.livingPlayersBuffer.push(p);
+      }
+    }
+    return this.livingPlayersBuffer;
   }
 
   /**
@@ -184,7 +212,7 @@ export class PlayerManager {
     const s = recipient.state;
     return (
       ((s === 'revive_pending' || (s as any) === 'REVIVE_PENDING') && recipient.reviveTimer > 0) ||
-      ((s === 'destroyed' || s === 'eliminated') && recipient.lives <= 0)
+      ((s === 'destroyed' || s === 'eliminated' || s === 'captured') && recipient.lives <= 0)
     );
   }
 
@@ -236,18 +264,36 @@ export class PlayerManager {
     const players = this.getPlayers();
     if (players.length === 0) return true;
 
-    for (const p of players) {
-      if (p.lives > 0) return false;
+    for (let i = 0; i < players.length; i++) {
+      const p = players[i];
+      if (!p) continue;
+      // 1. Any player actively alive (flying controllable/respawning/docking) or with reserve lives
+      if (p.isAlive() || p.lives > 0) return false;
+
+      const s = p.state;
+      // 2. Any player in revive_pending with emergency countdown remaining
       if (
-        (p.state === 'revive_pending' || (p.state as any) === 'REVIVE_PENDING') &&
+        (s === 'revive_pending' || (s as any) === 'REVIVE_PENDING') &&
         p.reviveTimer > 0
       ) {
         return false;
       }
+      // 3. Any player in co-op death explosion
       if (
         (typeof p.isCoop === 'function' ? p.isCoop() : false) &&
-        (p.state === 'destroyed' || (p.state as any) === 'DESTROYED') &&
+        (s === 'destroyed' || (s as any) === 'DESTROYED') &&
         p.deathTimer > 0
+      ) {
+        return false;
+      }
+      // 4. Any player in tractor beam capture or docking (rescueable)
+      if (
+        s === 'captured' ||
+        (s as any) === 'CAPTURED' ||
+        s === 'capturing' ||
+        (s as any) === 'CAPTURING' ||
+        s === 'docking' ||
+        (s as any) === 'DOCKING'
       ) {
         return false;
       }
@@ -301,6 +347,7 @@ export class PlayerManager {
           lives: 3,
           game: this.game,
         });
+        this.updateCachedArrays();
         this.onPlayerCreated?.(this.p2);
       } else {
         this.p2.reset(144, Player.BASELINE_Y, 3);

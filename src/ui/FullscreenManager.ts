@@ -54,6 +54,7 @@ export class FullscreenManager {
 
   private changeListeners: Set<FullscreenChangeCallback> = new Set();
   private errorListeners: Set<FullscreenErrorCallback> = new Set();
+  private boundButtonUnbinders: Set<() => void> = new Set();
 
   private boundFullscreenChange: (e: Event) => void;
   private boundFullscreenError: (e: Event) => void;
@@ -318,10 +319,14 @@ export class FullscreenManager {
     button.addEventListener('click', clickHandler);
     const unbindChange = this.onChange(updateButtonState);
 
-    return () => {
+    const unbind = () => {
       button.removeEventListener('click', clickHandler);
       unbindChange();
+      this.boundButtonUnbinders.delete(unbind);
     };
+
+    this.boundButtonUnbinders.add(unbind);
+    return unbind;
   }
 
   /**
@@ -389,6 +394,14 @@ export class FullscreenManager {
       clearTimeout(this.watchdogTimeout2);
       this.watchdogTimeout2 = null;
     }
+    for (const unbind of Array.from(this.boundButtonUnbinders)) {
+      try {
+        unbind();
+      } catch (err) {
+        console.error('[FullscreenManager] Error unbinding button in destroy:', err);
+      }
+    }
+    this.boundButtonUnbinders.clear();
     this.changeListeners.clear();
     this.errorListeners.clear();
     this.targetElement = null;

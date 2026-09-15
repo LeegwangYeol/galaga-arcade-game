@@ -26,7 +26,7 @@ export interface PlayerTouchSession {
 }
 
 export class InputHandler {
-  private canvas: HTMLCanvasElement;
+  private canvas: HTMLCanvasElement | null;
   private screenManager: ScreenManager | null;
   private onUserGesture?: () => void;
   private userGestureNotified: boolean = false;
@@ -116,6 +116,7 @@ export class InputHandler {
     'KeyV', 'KeyB', 'KeyN', 'KeyK', 'KeyJ', 'KeyM', 'KeyP',
     'Escape', 'Enter', 'Numpad0', 'Digit1', 'Digit2', 'Numpad1', 'Numpad2', 'KeyR',
     'ShiftLeft', 'ShiftRight', 'KeyL', 'KeyO', 'Period', 'NumpadDecimal',
+    'Slash', '/',
   ]);
 
   // Bound listener references for deterministic cleanup
@@ -560,6 +561,16 @@ export class InputHandler {
       // Inner puck
       const dx = virtCurrentX - virtAnchorX;
       const dy = virtCurrentY - virtAnchorY;
+
+      if (
+        !Number.isFinite(virtCurrentX) ||
+        !Number.isFinite(virtCurrentY) ||
+        !Number.isFinite(dx) ||
+        !Number.isFinite(dy)
+      ) {
+        continue;
+      }
+
       const dist = Math.hypot(dx, dy);
       const maxR = 16;
       const puckX = dist > maxR ? virtAnchorX + (dx / dist) * maxR : virtCurrentX;
@@ -583,6 +594,12 @@ export class InputHandler {
     this.detachEventListeners();
     this.detachDomTouchControls();
     this.reset();
+    this.canvas = null;
+    this.domBtnLeft = null;
+    this.domBtnRight = null;
+    this.domBtnFire = null;
+    this.domBtnSpecial = null;
+    this.screenManager = null;
   }
 
   // ==========================================================================
@@ -1203,28 +1220,75 @@ export class InputHandler {
         const session = this.touchSessions.get(touch.identifier);
         if (!session) continue;
 
+        this.touchSessions.delete(touch.identifier);
+
         const targetState = session.playerId === 'p2' ? this.stateP2 : this.stateP1;
 
         if (session.role === 'fire') {
-          targetState.touchFire = false;
-          if (session.playerId === 'p1') {
-            if (!this.isAnyP1FireKeyPressed()) targetState.fire = false;
+          let hasRemainingFire = false;
+          for (const s of this.touchSessions.values()) {
+            if (s.playerId === session.playerId && s.role === 'fire') {
+              hasRemainingFire = true;
+              break;
+            }
+          }
+
+          if (hasRemainingFire) {
+            targetState.touchFire = true;
+            targetState.fire = true;
           } else {
-            if (!this.isAnyP2FireKeyPressed()) targetState.fire = false;
+            targetState.touchFire = false;
+            if (session.playerId === 'p1') {
+              if (!this.isAnyP1FireKeyPressed()) targetState.fire = false;
+            } else {
+              if (!this.isAnyP2FireKeyPressed()) targetState.fire = false;
+            }
           }
         } else if (session.role === 'steer') {
-          targetState.touchLeft = false;
-          targetState.touchRight = false;
-          if (session.playerId === 'p1') {
-            if (!this.isAnyP1LeftKeyPressed()) targetState.moveLeft = false;
-            if (!this.isAnyP1RightKeyPressed()) targetState.moveRight = false;
+          let remainingSteerSession: PlayerTouchSession | null = null;
+          for (const s of this.touchSessions.values()) {
+            if (s.playerId === session.playerId && s.role === 'steer') {
+              remainingSteerSession = s;
+              break;
+            }
+          }
+
+          if (remainingSteerSession) {
+            const deltaX = remainingSteerSession.currentX - remainingSteerSession.startX;
+            const deadzone = 10;
+            if (deltaX < -deadzone) {
+              targetState.touchLeft = true;
+              targetState.touchRight = false;
+              targetState.moveLeft = true;
+              targetState.moveRight = false;
+            } else if (deltaX > deadzone) {
+              targetState.touchRight = true;
+              targetState.touchLeft = false;
+              targetState.moveRight = true;
+              targetState.moveLeft = false;
+            } else {
+              targetState.touchLeft = false;
+              targetState.touchRight = false;
+              if (session.playerId === 'p1') {
+                if (!this.isAnyP1LeftKeyPressed()) targetState.moveLeft = false;
+                if (!this.isAnyP1RightKeyPressed()) targetState.moveRight = false;
+              } else {
+                if (!this.isAnyP2LeftKeyPressed()) targetState.moveLeft = false;
+                if (!this.isAnyP2RightKeyPressed()) targetState.moveRight = false;
+              }
+            }
           } else {
-            if (!this.isAnyP2LeftKeyPressed()) targetState.moveLeft = false;
-            if (!this.isAnyP2RightKeyPressed()) targetState.moveRight = false;
+            targetState.touchLeft = false;
+            targetState.touchRight = false;
+            if (session.playerId === 'p1') {
+              if (!this.isAnyP1LeftKeyPressed()) targetState.moveLeft = false;
+              if (!this.isAnyP1RightKeyPressed()) targetState.moveRight = false;
+            } else {
+              if (!this.isAnyP2LeftKeyPressed()) targetState.moveLeft = false;
+              if (!this.isAnyP2RightKeyPressed()) targetState.moveRight = false;
+            }
           }
         }
-
-        this.touchSessions.delete(touch.identifier);
       }
     }
   }
@@ -1306,9 +1370,9 @@ export class InputHandler {
   private isP2UpKey(c: string, k: string): boolean { return c === 'ArrowUp' || k === 'ArrowUp'; }
   private isP2DownKey(c: string, k: string): boolean { return c === 'ArrowDown' || k === 'ArrowDown'; }
   private isP2FireKey(c: string, k: string): boolean { return c === 'Enter' || c === 'Numpad0' || k === 'Enter'; }
-  private isP2SpecialKey(c: string, k: string): boolean { return c === 'KeyM' || k === 'm' || k === 'M' || c === 'ShiftRight'; }
+  private isP2SpecialKey(c: string, k: string): boolean { return c === 'KeyM' || k === 'm' || k === 'M'; }
   private isP2DonateKey(c: string, k: string): boolean {
-    return c === 'NumpadDecimal' || c === 'Period' || k === '.' || c === 'KeyO' || k === 'o' || k === 'O' || c === 'KeyL' || k === 'l' || k === 'L';
+    return c === 'NumpadDecimal' || c === 'Period' || k === '.' || c === 'KeyO' || k === 'o' || k === 'O';
   }
   private isAnyP1LeftKeyPressed(): boolean { return this.activeKeys.has('KeyA') || this.activeKeys.has('a') || this.activeKeys.has('A'); }
   private isAnyP1RightKeyPressed(): boolean { return this.activeKeys.has('KeyD') || this.activeKeys.has('d') || this.activeKeys.has('D'); }
