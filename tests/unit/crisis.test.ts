@@ -388,6 +388,9 @@ describe('Milestone 10: Stellaris Crisis Engine & 11 Crisis Events (`tests/unit/
       event.onActivate();
 
       const stars = context.starfield.getStars();
+      if (stars[0]) {
+        stars[0].y = 50; // Force safe distance from y=0 wrap-around boundary
+      }
       const initialStarY = stars[0]?.y ?? 50;
 
       event.update(0.1);
