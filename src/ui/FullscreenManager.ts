@@ -435,7 +435,7 @@ export class FullscreenManager {
 
   private handleFullscreenError(e: Event | Error): void {
     console.warn('[FullscreenManager] Fullscreen error encountered:', e);
-    for (const listener of this.errorListeners) {
+    for (const listener of Array.from(this.errorListeners)) {
       try {
         listener(e);
       } catch (err) {
