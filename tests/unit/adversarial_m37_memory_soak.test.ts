@@ -723,10 +723,7 @@ describe('Milestone M37: Adversarial Memory Soak & Zero-GC Profiling Suite', { t
       const isCachedArray = (call1 === call2);
       
       // We document this empirical observation
-      if (!isCachedArray) {
-        // Document allocation hazard: 2 players * 60 FPS * multiple calls/frame = thousands of ephemeral arrays/sec
-        expect(call1).toEqual(call2);
-      }
+      expect(isCachedArray).toBe(true);
     });
 
     it('profiling-4.2: audits steady-state update heap stability over 1,000 frames without Garbage Collection', () => {
