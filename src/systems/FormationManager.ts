@@ -1191,12 +1191,28 @@ export class FormationManager {
   // 7. Getters & Diagnostics
   // ==========================================================================
 
+  private readonly _livingEnemiesBuffer: Enemy[] = [];
+
   public getLivingCount(): number {
-    return this.enemies.filter((e) => e.active && e.state !== EnemyState.EXPLODING).length;
+    let count = 0;
+    for (let i = 0; i < this.enemies.length; i++) {
+      const e = this.enemies[i];
+      if (e && e.active && e.state !== EnemyState.EXPLODING) {
+        count++;
+      }
+    }
+    return count;
   }
 
   public getLivingEnemies(): Enemy[] {
-    return this.enemies.filter((e) => e.active && e.state !== EnemyState.EXPLODING);
+    this._livingEnemiesBuffer.length = 0;
+    for (let i = 0; i < this.enemies.length; i++) {
+      const e = this.enemies[i];
+      if (e && e.active && e.state !== EnemyState.EXPLODING) {
+        this._livingEnemiesBuffer.push(e);
+      }
+    }
+    return this._livingEnemiesBuffer;
   }
 
   public getEnemyAt(row: number, col: number): Enemy | null {
