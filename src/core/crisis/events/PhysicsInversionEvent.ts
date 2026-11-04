@@ -30,10 +30,11 @@ export class PhysicsInversionEvent extends BaseCrisisEvent {
     // 1. Reverse Upward Starfield Movement
     if (starfield && typeof starfield.getStars === 'function') {
       const stars = starfield.getStars();
+      const currentSpeed = typeof starfield.getSpeedMultiplier === 'function' ? starfield.getSpeedMultiplier() : 1.0;
       for (let i = 0; i < stars.length; i++) {
         const star = stars[i] as any;
         if (!star) continue;
-        star.y -= (star.speed || 30) * 2.2 * dt;
+        star.y -= (star.speed || 30) * (currentSpeed + 2.2) * dt;
         if (star.y < 0) {
           star.y += 288;
           star.x = Math.random() * 224;
