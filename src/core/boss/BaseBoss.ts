@@ -116,6 +116,7 @@ export abstract class BaseBoss extends Enemy implements IBossEntity {
   public scoreBonus: number = 10000;
   public targetY: number = 52;
   public subUnits: BossSubUnit[] = [];
+  protected _activeSubUnitsBuffer: BossSubUnit[] = [];
 
   constructor(
     game: Game,
@@ -252,7 +253,14 @@ export abstract class BaseBoss extends Enemy implements IBossEntity {
   }
 
   public getActiveSubUnits(): BossSubUnit[] {
-    return this.subUnits.filter((s) => s.active);
+    this._activeSubUnitsBuffer.length = 0;
+    for (let i = 0; i < this.subUnits.length; i++) {
+      const s = this.subUnits[i]!;
+      if (s.active) {
+        this._activeSubUnitsBuffer.push(s);
+      }
+    }
+    return this._activeSubUnitsBuffer;
   }
 
   public override update(dt: number, playerX: number, playerY: number): void {

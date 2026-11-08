@@ -97,8 +97,11 @@ export class NaniteColossus extends BaseBoss {
     this.game.soundSynth?.playExplosion('small');
 
     // Check if all 4 constructs are defeated
-    const livingConstructs = this.miniConstructs.filter((c) => c.active);
-    if (livingConstructs.length === 0 && this.isSplit && this.phase === 'PHASE_1') {
+    let livingConstructsCount = 0;
+    for (let i = 0; i < this.miniConstructs.length; i++) {
+      if (this.miniConstructs[i]!.active) livingConstructsCount++;
+    }
+    if (livingConstructsCount === 0 && this.isSplit && this.phase === 'PHASE_1') {
       this.isSplit = false;
       this.phase = 'TRANSITION_1_2';
       this.invulnerableTimer = 2.0;
