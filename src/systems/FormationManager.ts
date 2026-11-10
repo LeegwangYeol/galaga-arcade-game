@@ -591,58 +591,70 @@ export class FormationManager {
     let waveType: SubWaveType;
     let waveEnemies: Enemy[] = [];
 
+
     switch (subWaveIndex) {
       case 0:
         // Sub-Wave 1: Top Center (4 Bosses + 4 Goeis in Row 1 Cols 3..6)
         waveType = 'WAVE_1_TOP_CENTER';
-        waveEnemies = this.enemies.filter(
-          (e) =>
-            (e.row === 0 && e.col >= 3 && e.col <= 6) ||
-            (e.row === 1 && e.col >= 3 && e.col <= 6)
-        );
+        for (let i = 0; i < this.enemies.length; i++) {
+          const e = this.enemies[i];
+          if (e && ((e.row === 0 && e.col >= 3 && e.col <= 6) ||
+              (e.row === 1 && e.col >= 3 && e.col <= 6))) {
+            waveEnemies.push(e);
+          }
+        }
         break;
 
       case 1:
         // Sub-Wave 2: Top Right (8 Goeis: Row 1 Cols 1,2,7,8 + Row 2 Cols 3..6)
         waveType = 'WAVE_2_TOP_RIGHT';
-        waveEnemies = this.enemies.filter(
-          (e) =>
-            (e.row === 1 && (e.col === 1 || e.col === 2 || e.col === 7 || e.col === 8)) ||
-            (e.row === 2 && e.col >= 3 && e.col <= 6)
-        );
+        for (let i = 0; i < this.enemies.length; i++) {
+          const e = this.enemies[i];
+          if (e && ((e.row === 1 && (e.col === 1 || e.col === 2 || e.col === 7 || e.col === 8)) ||
+              (e.row === 2 && e.col >= 3 && e.col <= 6))) {
+            waveEnemies.push(e);
+          }
+        }
         break;
 
       case 2:
         // Sub-Wave 3: Top Left (8 Goeis/Zakos: Row 2 Cols 1,2,7,8 + Row 3 Cols 3..6)
         waveType = 'WAVE_3_TOP_LEFT';
-        waveEnemies = this.enemies.filter(
-          (e) =>
-            (e.row === 2 && (e.col === 1 || e.col === 2 || e.col === 7 || e.col === 8)) ||
-            (e.row === 3 && e.col >= 3 && e.col <= 6)
-        );
+        for (let i = 0; i < this.enemies.length; i++) {
+          const e = this.enemies[i];
+          if (e && ((e.row === 2 && (e.col === 1 || e.col === 2 || e.col === 7 || e.col === 8)) ||
+              (e.row === 3 && e.col >= 3 && e.col <= 6))) {
+            waveEnemies.push(e);
+          }
+        }
         break;
 
       case 3:
         // Sub-Wave 4: Bottom Left (8 Zakos: Row 3 Cols 0..2 + Row 4 Cols 0..4)
         waveType = 'WAVE_4_BOTTOM_LEFT';
-        waveEnemies = this.enemies.filter(
-          (e) =>
-            (e.row === 3 && e.col <= 2) ||
-            (e.row === 4 && e.col <= 4)
-        );
+        for (let i = 0; i < this.enemies.length; i++) {
+          const e = this.enemies[i];
+          if (e && ((e.row === 3 && e.col <= 2) ||
+              (e.row === 4 && e.col <= 4))) {
+            waveEnemies.push(e);
+          }
+        }
         break;
 
       case 4:
       default:
         // Sub-Wave 5: Bottom Right (8 Zakos: Row 3 Cols 7..9 + Row 4 Cols 5..9)
         waveType = 'WAVE_5_BOTTOM_RIGHT';
-        waveEnemies = this.enemies.filter(
-          (e) =>
-            (e.row === 3 && e.col >= 7) ||
-            (e.row === 4 && e.col >= 5)
-        );
+        for (let i = 0; i < this.enemies.length; i++) {
+          const e = this.enemies[i];
+          if (e && ((e.row === 3 && e.col >= 7) ||
+              (e.row === 4 && e.col >= 5))) {
+            waveEnemies.push(e);
+          }
+        }
         break;
     }
+
 
     // Assign flight path to each enemy in the sub-wave
     for (let i = 0; i < waveEnemies.length; i++) {
@@ -700,17 +712,15 @@ export class FormationManager {
       return;
     }
 
-    const currentDivers = this.enemies.filter(
-      (e) =>
-        e.active &&
-        (e.state === EnemyState.DIVING_SOLO ||
-          e.state === EnemyState.DIVING_ESCORT ||
-          e.state === EnemyState.TRACTOR_BEAM_ACTIVE ||
-          e.state === EnemyState.CAPTURED_HOSTILE ||
-          e.state === EnemyState.RETURNING_TO_FORMATION)
-    );
+    let currentDiversCount = 0;
+    for (let i = 0; i < this.enemies.length; i++) {
+      const e = this.enemies[i];
+      if (e && e.active && (e.state === EnemyState.DIVING_SOLO || e.state === EnemyState.DIVING_ESCORT || e.state === EnemyState.TRACTOR_BEAM_ACTIVE || e.state === EnemyState.CAPTURED_HOSTILE || e.state === EnemyState.RETURNING_TO_FORMATION)) {
+        currentDiversCount++;
+      }
+    }
 
-    if (currentDivers.length >= this.maxConcurrentDivers) {
+    if (currentDiversCount >= this.maxConcurrentDivers) {
       return;
     }
 
@@ -726,9 +736,13 @@ export class FormationManager {
     if (living.length === 0) return null;
 
     // Candidates: living players with !p.isDual && !p.isInvulnerable() && (p.state === 'normal' || p.state === 'ALIVE')
-    const candidates = living.filter(
-      (p) => !p.isDual && !p.isInvulnerable() && (p.state === 'normal' || (p.state as any) === 'ALIVE')
-    );
+    const candidates = [];
+    for (let i = 0; i < living.length; i++) {
+      const p = living[i];
+      if (p && !p.isDual && !p.isInvulnerable() && (p.state === 'normal' || (p.state as any) === 'ALIVE')) {
+        candidates.push(p);
+      }
+    }
     // If both players are Dual (or none eligible): returns null (tractor dive suppressed!)
     if (candidates.length === 0) return null;
 
@@ -1146,9 +1160,13 @@ export class FormationManager {
   }
 
   private triggerFormationSniperShot(playerX: number, playerY: number): void {
-    const formationEnemies = this.enemies.filter(
-      (e) => e.active && e.state === EnemyState.IN_FORMATION && e.canShoot
-    );
+    const formationEnemies = [];
+    for (let i = 0; i < this.enemies.length; i++) {
+      const e = this.enemies[i];
+      if (e && e.active && e.state === EnemyState.IN_FORMATION && e.canShoot) {
+        formationEnemies.push(e);
+      }
+    }
     if (formationEnemies.length === 0) return;
 
     let closestEnemy = formationEnemies[0]!;
@@ -1192,11 +1210,25 @@ export class FormationManager {
   // ==========================================================================
 
   public getLivingCount(): number {
-    return this.enemies.filter((e) => e.active && e.state !== EnemyState.EXPLODING).length;
+    let count = 0;
+    for (let i = 0; i < this.enemies.length; i++) {
+      const e = this.enemies[i];
+      if (e && e.active && e.state !== EnemyState.EXPLODING) {
+        count++;
+      }
+    }
+    return count;
   }
 
   public getLivingEnemies(): Enemy[] {
-    return this.enemies.filter((e) => e.active && e.state !== EnemyState.EXPLODING);
+    const living: Enemy[] = [];
+    for (let i = 0; i < this.enemies.length; i++) {
+      const e = this.enemies[i];
+      if (e && e.active && e.state !== EnemyState.EXPLODING) {
+        living.push(e);
+      }
+    }
+    return living;
   }
 
   public getEnemyAt(row: number, col: number): Enemy | null {
