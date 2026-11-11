@@ -388,7 +388,10 @@ describe('Milestone 10: Stellaris Crisis Engine & 11 Crisis Events (`tests/unit/
       event.onActivate();
 
       const stars = context.starfield.getStars();
-      const initialStarY = stars[0]?.y ?? 50;
+      if (stars[0]) {
+        stars[0].y = 150; // Set safe Y to avoid wrap-around during test
+      }
+      const initialStarY = stars[0]?.y ?? 150;
 
       event.update(0.1);
       // Stars should move upward (y decreases)
